@@ -125,10 +125,10 @@ d3d12_context_destroy(struct pipe_context *pctx)
       dxil_destroy_validator(ctx->dxil_validator);
 #endif // _WIN32
 
-#ifndef _GAMING_XBOX
+#if !defined(_GAMING_XBOX) && !defined(_XBOX_UWP)
       if (ctx->dev_config)
          ctx->dev_config->Release();
-#endif // _GAMING_XBOX
+#endif // !_GAMING_XBOX && !_XBOX_UWP
 
       if (ctx->timestamp_query)
          pctx->destroy_query(pctx, ctx->timestamp_query);
@@ -629,7 +629,7 @@ d3d12_context_create(struct pipe_screen *pscreen, void *priv, unsigned flags)
 
 #ifdef HAVE_GALLIUM_D3D12_GRAPHICS
    if ((screen->max_feature_level >= D3D_FEATURE_LEVEL_11_0) && !(flags & PIPE_CONTEXT_MEDIA_ONLY)) {
-#ifndef _GAMING_XBOX
+#if !defined(_GAMING_XBOX) && !defined(_XBOX_UWP)
       (void)screen->dev->QueryInterface(&ctx->dev_config);
 #endif
 

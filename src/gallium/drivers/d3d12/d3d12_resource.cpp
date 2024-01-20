@@ -322,7 +322,7 @@ init_texture(struct d3d12_screen *screen,
    HRESULT hres = E_FAIL;
    enum d3d12_residency_status init_residency;
    do {
-#ifndef _GAMING_XBOX
+#if !defined(_GAMING_XBOX) && !defined(_XBOX_UWP)
 
    if (heap && screen->max_feature_level == D3D_FEATURE_LEVEL_1_0_GENERIC) {
       D3D12_FEATURE_DATA_PLACED_RESOURCE_SUPPORT_INFO capData;
@@ -578,7 +578,7 @@ d3d12_resource_from_handle(struct pipe_screen *pscreen,
    HANDLE d3d_handle = (HANDLE) (intptr_t) handle->handle;
 #endif
 
-#ifndef _GAMING_XBOX
+#if !defined(_GAMING_XBOX) && !defined(_XBOX_UWP)
    if (handle->type == WINSYS_HANDLE_TYPE_D3D12_RES) {
       ComPtr<IUnknown> screen_device;
       ComPtr<IUnknown> res_device;

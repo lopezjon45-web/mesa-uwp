@@ -839,7 +839,7 @@ linearize_write_cfg(struct exec_list *list, struct var_to_subgroup_state *state)
              * track all writes from the start of divergent control flow
              * to the break.
              */
-            nir_block *break_block;
+            nir_block *break_block = NULL;
             nir_foreach_pred(pred, loop_exit)
                break_block = pred;
 

@@ -117,7 +117,7 @@ pass(nir_builder *b, nir_intrinsic_instr *intr, void *data)
 
    if (bounds_check) {
       nir_push_else(b, NULL);
-      nir_def *zero;
+      nir_def *zero = NULL;
 
       if (def)
          zero = nir_imm_zero(b, def->num_components, def->bit_size);
