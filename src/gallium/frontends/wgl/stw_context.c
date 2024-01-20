@@ -313,17 +313,23 @@ DrvDeleteContext(DHGLRC dhglrc)
 {
    struct stw_context *ctx ;
    BOOL ret = false;
+   HDC drawDC = NULL;
 
    if (!stw_dev)
       return false;
 
    stw_lock_contexts(stw_dev);
    ctx = stw_lookup_context_locked(dhglrc);
+   //we need to know if we are removing the last handle
    handle_table_remove(stw_dev->ctx_table, dhglrc);
+   dhglrc = handle_table_get_first_handle(stw_dev->ctx_table);
    stw_unlock_contexts(stw_dev);
+
 
    if (ctx) {
       struct stw_context *curctx = stw_current_context();
+      drawDC =  ctx->hDrawDC;
+
 
       /* Unbind current if deleting current context. */
       if (curctx == ctx)
@@ -332,6 +338,12 @@ DrvDeleteContext(DHGLRC dhglrc)
       stw_destroy_context(ctx);
       ret = true;
    }
+
+   #ifdef _XBOX_UWP
+   //we can't releaseDC in this context. Maybe
+   if (NULL == dhglrc)
+      stw_destroy_screen(drawDC);
+   #endif
 
    return ret;
 }

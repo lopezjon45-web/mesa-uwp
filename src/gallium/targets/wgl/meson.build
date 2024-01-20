@@ -3,6 +3,13 @@
 
 gallium_wgl_link_args = []
 
+# STRN: When we are using /ZW (C++/CX), vccorlib.lib has to be linked BEFORE msvcrt.lib
+# to avoid duplicate symbol errors. We exclude the default vccorlib.lib and 
+# re-add it explicitly to control link order.
+if with_uwp
+  gallium_wgl_link_args += ['/NODEFAULTLIB:vccorlib.lib', 'vccorlib.lib']
+endif
+
 wgl_def = custom_target(
   'gallium_wgl.def',
   input: 'gallium_wgl.def.in',
@@ -13,14 +20,14 @@ wgl_def = custom_target(
 gallium_wgl_name = get_option('gallium-wgl-dll-name')
 libgallium_wgl = shared_library(
   gallium_wgl_name,
-  ['wgl.c'],
+  ['wgl.c','dummy_uwp.cpp'],
   vs_module_defs : wgl_def,
   include_directories : [
     inc_include, inc_src, inc_mesa, inc_gallium, inc_gallium_aux, inc_wgl, inc_gallium_winsys, inc_gallium_winsys_sw, inc_gallium_drivers,
   ],
-  link_whole : [libwgl],
+  link_whole : [libwgl, libgdi_uwp],
   link_with : [
-    libgallium, libglsl, libmesa, libwsgdi, libglapi_bridge, libglapi, libgalliumvl_stub,
+    libgallium, libglsl, libmesa, libwsgdi, libglapi_bridge, libglapi, libgalliumvl_stub, libgdi_uwp
   ],
   dependencies : [
     dep_ws2_32, idep_nir, idep_mesautil, driver_swrast,
