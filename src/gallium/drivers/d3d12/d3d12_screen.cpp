@@ -56,7 +56,7 @@
 #include <directx/d3d12sdklayers.h>
 #endif
 
-#if defined(_WIN32) && defined(_WIN64) && !defined(_GAMING_XBOX)
+#if defined(_WIN32) && defined(_WIN64) && !defined(_GAMING_XBOX) && !defined(_XBOX_UWP)
 #include <filesystem>
 #include <shlobj.h>
 #endif
@@ -412,9 +412,13 @@ d3d12_init_screen_caps(struct d3d12_screen *screen)
     * if an app just creates, initializes, and destroys resources without explicitly flushing. */
    caps->max_texture_upload_memory_budget = 64 * 1024 * 1024;
 
+#ifdef _XBOX_UWP
+   caps->sampler_view_target = true;
+#else
    caps->sampler_view_target = screen->opts12.RelaxedFormatCastingSupported;
+#endif
 
-#ifndef _GAMING_XBOX
+#if !defined(_GAMING_XBOX) && !defined(XBOX_UWP)
    caps->query_memory_info = true;
 #endif
 
@@ -740,7 +744,7 @@ d3d12_flush_frontbuffer(struct pipe_screen * pscreen,
       winsys->displaytarget_unmap(winsys, res->dt);
    }
 
-#if defined(_WIN32) && !defined(_GAMING_XBOX) && defined(HAVE_GALLIUM_D3D12_GRAPHICS)
+#if defined(_WIN32) && !defined(_GAMING_XBOX) && defined(HAVE_GALLIUM_D3D12_GRAPHICS) && !defined(_XBOX_UWP)
    // WindowFromDC is Windows-only, and this method requires an HWND, so only use it on Windows
    ID3D12SharingContract *sharing_contract;
    if (SUCCEEDED(screen->cmdqueue->QueryInterface(IID_PPV_ARGS(&sharing_contract)))) {
@@ -905,12 +909,16 @@ create_device(util_dl_library *d3d12_mod, IUnknown *adapter, ID3D12DeviceFactory
 static bool
 can_attribute_at_vertex(struct d3d12_screen *screen)
 {
+#ifdef _XBOX_UWP
+   return false; //unsupported
+#else
    switch (screen->vendor_id)  {
    case HW_VENDOR_MICROSOFT:
       return true;
    default:
       return screen->opts3.BarycentricsSupported;
    }
+#endif
 }
 
 static bool
@@ -919,6 +927,7 @@ can_shader_image_load_all_formats(struct d3d12_screen *screen)
    if (!screen->opts.TypedUAVLoadAdditionalFormats)
       return false;
 
+#ifndef _XBOX_UWP
    /* All of these are required by ARB_shader_image_load_store */
    static const DXGI_FORMAT additional_formats[] = {
       DXGI_FORMAT_R16G16B16A16_UNORM,
@@ -952,6 +961,11 @@ can_shader_image_load_all_formats(struct d3d12_screen *screen)
             (D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD | D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE))
          return false;
    }
+#else
+   //TODO: support this injecting conversion 
+   //toward a supported format on load/store operations
+   //see https://github.com/apitrace/dxsdk/blob/master/Include/d3dx_dxgiformatconvert.inl
+#endif
 
    return true;
 }
@@ -1395,7 +1409,7 @@ try_find_d3d12core_next_to_self(char *path, DWORD path_arr_size)
 static ID3D12DeviceFactory *
 try_create_device_factory(util_dl_library *d3d12_mod)
 {
-#if defined(_WIN32) && defined(_WIN64)
+#if defined(_WIN32) && defined(_WIN64) && !defined(_XBOX_UWP)
    if (d3d12_debug & D3D12_DEBUG_PIX) {
       if (GetModuleHandleW(L"WinPixGpuCapturer.dll") == nullptr) {
          LPWSTR program_files_path = nullptr;
@@ -1482,7 +1496,7 @@ d3d12_init_screen_command_queue(struct d3d12_screen *screen, D3D12_COMMAND_QUEUE
    queue_desc.Type = screen->queue_type;
    queue_desc.Flags = queue_flags;
 
-#ifndef _GAMING_XBOX
+#if !defined(_GAMING_XBOX) && !defined(_XBOX_UWP)
    ID3D12Device9 *device9 = NULL;
    if (SUCCEEDED(screen->dev->QueryInterface(&device9))) {
       if (FAILED(device9->CreateCommandQueue1(&queue_desc, OpenGLOn12CreatorID,

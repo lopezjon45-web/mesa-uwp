@@ -74,6 +74,7 @@ nu_handle_init(struct nu_handle *h, nir_src *src)
 
       nir_deref_instr *parent = nir_deref_instr_parent(deref);
       assert(parent->deref_type == nir_deref_type_var);
+      (void)parent;
 
       assert(deref->deref_type == nir_deref_type_array);
       if (nir_src_is_const(deref->arr.index))
