@@ -28,6 +28,11 @@
 #ifndef STW_GDISHIM_H
 #define STW_GDISHIM_H
 
+#ifdef _XBOX_UWP
+#include "../../../gallium/winsys/uwp/uwpgdi.h"
+#include "../../../gallium/winsys/uwp/gdi_uwp.h"
+#endif
+
 #ifdef _GAMING_XBOX
 
 #include <windows.h>

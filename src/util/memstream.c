@@ -34,7 +34,7 @@
 bool
 u_memstream_open(struct u_memstream *mem, char **bufp, size_t *sizep)
 {
-#ifdef _GAMING_XBOX
+#if defined(_GAMING_XBOX) || defined(_XBOX_UWP)
    int err = tmpfile_s(&mem->f);
    mem->bufp = bufp;
    mem->sizep = sizep;
