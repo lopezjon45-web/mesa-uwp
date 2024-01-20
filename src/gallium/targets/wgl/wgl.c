@@ -37,7 +37,9 @@
 #include <windows.h>
 
 #include "util/u_debug.h"
+#include "stw_gdishim.h"
 #include "stw_winsys.h"
+#include "frontend/sw_winsys.h"
 #include "stw_device.h"
 #include "gdi/gdi_sw_winsys.h"
 #include "pipe/p_screen.h"
@@ -66,6 +68,7 @@
 #ifdef GALLIUM_LLVMPIPE
 static bool use_llvmpipe = false;
 #endif
+#include <pipebuffer\pb_cache.h>
 #ifdef GALLIUM_D3D12
 static bool use_d3d12 = false;
 #endif
