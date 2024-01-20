@@ -212,7 +212,7 @@ create_root_signature(struct d3d12_context *ctx, struct d3d12_root_signature_key
       root_sig_desc.Desc_1_1.Flags |= D3D12_ROOT_SIGNATURE_FLAG_ALLOW_STREAM_OUTPUT;
 
    ComPtr<ID3DBlob> sig, error;
-#ifndef _GAMING_XBOX
+#if !defined(_GAMING_XBOX) && !defined(_XBOX_UWP)
    if (ctx->dev_config) {
       if (FAILED(ctx->dev_config->SerializeVersionedRootSignature(&root_sig_desc,
                                                                   &sig, &error))) {
