@@ -29,6 +29,7 @@
 #include "util/cnd_monotonic.h"
 #include "util/timespec.h"
 #include "util/u_thread.h"
+#include "util/uwp_util.h"
 #include "vk_format.h"
 #include "vk_instance.h"
 #include "vk_physical_device.h"
@@ -58,7 +59,9 @@ struct wsi_win32 {
    VkPhysicalDevice physical_device;
    struct {
       IDXGIFactory4 *factory;
+#if !defined _XBOX_UWP
       IDCompositionDevice *dcomp;
+#endif
    } dxgi;
 };
 
@@ -93,8 +96,10 @@ struct wsi_win32_surface {
     * window will flash white. When the currently-bound swapchain is destroyed,
     * the visual's content is unset.
     */
+#if !defined _XBOX_UWP
    IDCompositionTarget *target;
    IDCompositionVisual *visual;
+#endif
    struct wsi_win32_swapchain *current_swapchain;
 };
 
@@ -154,11 +159,13 @@ wsi_win32_surface_destroy(VkIcdSurfaceBase *icd_surface, VkInstance _instance,
                           const VkAllocationCallbacks *pAllocator)
 {
    VK_FROM_HANDLE(vk_instance, instance, _instance);
+#if !defined _XBOX_UWP
    wsi_win32_surface *surface = (wsi_win32_surface *)icd_surface;
    if (surface->visual)
       surface->visual->Release();
    if (surface->target)
       surface->target->Release();
+#endif
    vk_free2(&instance->alloc, pAllocator, icd_surface);
 }
 
@@ -178,11 +185,14 @@ wsi_win32_surface_get_capabilities(VkIcdSurfaceBase *surf,
                                    struct wsi_device *wsi_device,
                                    VkSurfaceCapabilities2KHR* caps)
 {
+#ifndef _XBOX_UWP
    VkIcdSurfaceWin32 *surface = (VkIcdSurfaceWin32 *)surf;
-
-   RECT win_rect;
+#endif
+   RECT win_rect = {0};
+#ifndef _XBOX_UWP
    if (!GetClientRect(surface->hwnd, &win_rect))
       return VK_ERROR_SURFACE_LOST_KHR;
+#endif
 
    caps->surfaceCapabilities.minImageCount = 1;
 
@@ -198,10 +208,16 @@ wsi_win32_surface_get_capabilities(VkIcdSurfaceBase *surf,
       caps->surfaceCapabilities.maxImageCount = 0;
    }
 
+#ifdef _XBOX_UWP
+   caps->surfaceCapabilities.currentExtent = {
+      (uint32_t) uwp_get_width(), (uint32_t) uwp_get_height()
+   };
+#else
    caps->surfaceCapabilities.currentExtent = {
       (uint32_t)win_rect.right - (uint32_t)win_rect.left,
       (uint32_t)win_rect.bottom - (uint32_t)win_rect.top
    };
+#endif
    caps->surfaceCapabilities.minImageExtent = { 1u, 1u };
    caps->surfaceCapabilities.maxImageExtent = {
       wsi_device->maxImageDimension2D,
@@ -560,8 +576,10 @@ wsi_win32_image_init(VkDevice device_h,
    if (chain->dxgi)
       return VK_SUCCESS;
 
+#ifndef _XBOX_UWP
    chain->chain_dc = GetDC(chain->wnd);
    image->sw.dc = CreateCompatibleDC(chain->chain_dc);
+#endif
    HBITMAP bmp = NULL;
 
    BITMAPINFO info = { 0 };
@@ -571,15 +589,20 @@ wsi_win32_image_init(VkDevice device_h,
    info.bmiHeader.biPlanes = 1;
    info.bmiHeader.biBitCount = 32;
    info.bmiHeader.biCompression = BI_RGB;
-
+#ifndef _XBOX_UWP
    bmp = CreateDIBSection(image->sw.dc, &info, DIB_RGB_COLORS, &image->sw.ppvBits, NULL, 0);
+#endif
    assert(bmp && image->sw.ppvBits);
 
+#ifndef _XBOX_UWP
    SelectObject(image->sw.dc, bmp);
+#endif
 
-   BITMAP header;
+   BITMAP header = {0};
+#ifndef _XBOX_UWP
    int status = GetObject(bmp, sizeof(BITMAP), &header);
    (void)status;
+#endif
    image->sw.bmp_row_pitch = header.bmWidthBytes;
    image->sw.bmp = bmp;
 
@@ -593,11 +616,12 @@ wsi_win32_image_finish(struct wsi_win32_swapchain *chain,
 {
    if (image->dxgi.swapchain_res)
       image->dxgi.swapchain_res->Release();
-
+#ifndef _XBOX_UWP
    if (image->sw.dc)
       DeleteDC(image->sw.dc);
    if(image->sw.bmp)
       DeleteObject(image->sw.bmp);
+#endif
    wsi_destroy_image(&chain->base, &image->base);
 }
 
@@ -610,9 +634,9 @@ wsi_win32_swapchain_destroy(struct wsi_swapchain *drv_chain,
 
    for (uint32_t i = 0; i < chain->base.image_count; i++)
       wsi_win32_image_finish(chain, allocator, &chain->images[i]);
-
+#ifndef _XBOX_UWP
    DeleteDC(chain->chain_dc);
-
+#endif
    if (chain->surface->current_swapchain == chain)
       chain->surface->current_swapchain = NULL;
 
@@ -796,8 +820,10 @@ wsi_win32_queue_present_dxgi(struct wsi_win32_swapchain *chain,
    }
 
    if (chain->surface->current_swapchain != chain) {
+#if !defined _XBOX_UWP
       chain->surface->visual->SetContent(chain->dxgi);
       chain->wsi->dxgi.dcomp->Commit();
+#endif
       chain->surface->current_swapchain = chain;
    }
 
@@ -829,8 +855,10 @@ wsi_win32_queue_present(struct wsi_swapchain *drv_chain,
       dptr += image->sw.bmp_row_pitch;
       ptr += image->base.row_pitches[0];
    }
+#ifndef _XBOX_UWP
    if (!StretchBlt(chain->chain_dc, 0, 0, chain->extent.width, chain->extent.height, image->sw.dc, 0, 0, chain->extent.width, chain->extent.height, SRCCOPY))
       chain->status = VK_ERROR_MEMORY_MAP_FAILED;
+#endif
 
    wsi_win32_set_image_idle(chain, image);
 
@@ -889,12 +917,20 @@ wsi_win32_surface_create_swapchain_dxgi(
       desc.BufferUsage |= DXGI_USAGE_RENDER_TARGET_OUTPUT;
 
    IDXGISwapChain1 *swapchain1;
+#ifndef _XBOX_UWP
    if (FAILED(factory->CreateSwapChainForComposition(queue, &desc, NULL, &swapchain1)) ||
        FAILED(swapchain1->QueryInterface(&chain->dxgi)))
       return VK_ERROR_INITIALIZATION_FAILED;
+#else
+   if (FAILED(factory->CreateSwapChainForCoreWindow(queue, static_cast<IUnknown*>(uwp_get_window_reference()), &desc, nullptr, &swapchain1)) ||
+       FAILED(swapchain1->QueryInterface(&chain->dxgi)))
+      return VK_ERROR_INITIALIZATION_FAILED;
+
+
+#endif
 
    swapchain1->Release();
-
+#if !defined _XBOX_UWP
    if (!surface->target &&
        FAILED(wsi->dxgi.dcomp->CreateTargetForHwnd(surface->base.hwnd, false, &surface->target)))
       return VK_ERROR_INITIALIZATION_FAILED;
@@ -905,9 +941,11 @@ wsi_win32_surface_create_swapchain_dxgi(
           FAILED(surface->visual->SetContent(chain->dxgi)) ||
           FAILED(wsi->dxgi.dcomp->Commit()))
          return VK_ERROR_INITIALIZATION_FAILED;
-
       surface->current_swapchain = chain;
    }
+#else
+   surface->current_swapchain = chain;
+#endif
    return VK_SUCCESS;
 }
 
@@ -961,7 +999,9 @@ wsi_win32_surface_create_swapchain(
    };
 
    bool supports_dxgi = wsi->dxgi.factory &&
+#ifndef _XBOX_UWP
                         wsi->dxgi.dcomp &&
+#endif
                         wsi->wsi->win32.get_d3d12_command_queue;
    struct wsi_base_image_params *image_params = supports_dxgi ?
       &dxgi_image_params.base : &cpu_image_params.base;
@@ -1010,11 +1050,14 @@ wsi_win32_surface_create_swapchain(
    return VK_SUCCESS;
 
 fail:
+
+#ifndef _XBOX_UWP
    if (surface->visual) {
       surface->visual->SetContent(NULL);
       surface->current_swapchain = NULL;
       wsi->dxgi.dcomp->Commit();
    }
+#endif
    wsi_win32_swapchain_destroy(&chain->base, allocator);
    return result;
 }
@@ -1048,6 +1091,7 @@ dxgi_get_factory(bool debug)
    return factory;
 }
 
+#ifndef _XBOX_UWP
 static IDCompositionDevice *
 dcomp_get_device()
 {
@@ -1072,6 +1116,7 @@ dcomp_get_device()
 
    return device;
 }
+#endif
 
 VkResult
 wsi_win32_init_wsi(struct wsi_device *wsi_device,
@@ -1099,6 +1144,7 @@ wsi_win32_init_wsi(struct wsi_device *wsi_device,
          result = VK_ERROR_INITIALIZATION_FAILED;
          goto fail;
       }
+#ifndef _XBOX_UWP
       wsi->dxgi.dcomp = dcomp_get_device();
       if (!wsi->dxgi.dcomp) {
          wsi->dxgi.factory->Release();
@@ -1106,6 +1152,7 @@ wsi_win32_init_wsi(struct wsi_device *wsi_device,
          result = VK_ERROR_INITIALIZATION_FAILED;
          goto fail;
       }
+#endif
    }
 
    wsi->base.get_support = wsi_win32_surface_get_support;
@@ -1137,8 +1184,10 @@ wsi_win32_finish_wsi(struct wsi_device *wsi_device,
 
    if (wsi->dxgi.factory)
       wsi->dxgi.factory->Release();
+#ifndef _XBOX_UWP
    if (wsi->dxgi.dcomp)
       wsi->dxgi.dcomp->Release();
+#endif
 
    vk_free(alloc, wsi);
 }
