@@ -67,7 +67,7 @@ static void
 wrap_in_if(nir_builder *b, nir_intrinsic_instr *instr, nir_def *valid, bool is_load)
 {
    bool has_dest = nir_intrinsic_infos[instr->intrinsic].has_dest;
-   nir_def *res, *zero;
+   nir_def *res = NULL, *zero = NULL;
 
    if (has_dest) {
          zero = is_load ? image_robust2_oob_value(b, instr) :
