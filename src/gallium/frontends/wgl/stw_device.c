@@ -73,7 +73,7 @@ stw_get_param(struct pipe_frontend_screen *fscreen,
 static int
 get_refresh_rate(void)
 {
-#ifndef _GAMING_XBOX
+#if !defined _GAMING_XBOX && !defined _XBOX_UWP
    DEVMODE devModes = { .dmSize = sizeof(DEVMODE) };
 
    if (EnumDisplaySettings(NULL, ENUM_CURRENT_SETTINGS, &devModes)) {
@@ -198,6 +198,28 @@ stw_init_screen(HDC hdc)
 
    LeaveCriticalSection(&stw_dev->screen_mutex);
    return stw_dev->screen != NULL;
+}
+
+void
+stw_destroy_screen(HDC hdc)
+{
+   stw_framebuffer_cleanup();
+
+   EnterCriticalSection(&stw_dev->screen_mutex);
+
+   if (stw_dev->screen_initialized) {
+      stw_dev->screen_initialized = false;
+      st_screen_destroy(stw_dev->fscreen);
+      stw_dev->screen->destroy(stw_dev->screen);
+      memset(stw_dev->fscreen, 0, sizeof(struct pipe_frontend_screen));
+      stw_dev->fscreen->get_param = stw_get_param;
+   }
+
+   LeaveCriticalSection(&stw_dev->screen_mutex);
+
+   util_dynarray_fini(&stw_dev->pixelformats);
+   stw_dev->pixelformat_count = 0;
+   ReleaseDC(WindowFromDC(hdc),hdc);
 }
 
 struct stw_device *

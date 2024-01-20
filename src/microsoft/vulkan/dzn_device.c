@@ -1814,7 +1814,11 @@ dzn_instance_create(const VkInstanceCreateInfo *pCreateInfo,
    instance->debug_flags =
       parse_debug_string(os_get_option("DZN_DEBUG"), dzn_debug_options);
 
-#ifdef _WIN32
+#if defined _XBOX_UWP && DEBUGDX
+   instance->debug_flags = DZN_DEBUG_D3D12;
+#endif
+
+#if defined _WIN32 && !defined _XBOX_UWP
    if (instance->debug_flags & DZN_DEBUG_DEBUGGER) {
       /* wait for debugger to attach... */
       while (!IsDebuggerPresent()) {

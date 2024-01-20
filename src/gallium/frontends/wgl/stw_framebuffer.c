@@ -178,7 +178,9 @@ stw_framebuffer_get_size(struct stw_framebuffer *fb)
 
    client_pos.x = 0;
    client_pos.y = 0;
-#ifndef _GAMING_XBOX
+
+//TODO: This might be necessary for multi-window UWP applications?
+#if !defined _GAMING_XBOX && !defined _XBOX_UWP
    if (ClientToScreen(fb->hWnd, &client_pos) &&
        GetWindowRect(fb->hWnd, &window_rect)) {
       fb->client_rect.left = client_pos.x - window_rect.left;
@@ -206,7 +208,7 @@ stw_framebuffer_get_size(struct stw_framebuffer *fb)
 }
 
 
-#ifndef _GAMING_XBOX
+#if !defined _GAMING_XBOX && !defined _XBOX_UWP
 /**
  * @sa http://msdn.microsoft.com/en-us/library/ms644975(VS.85).aspx
  * @sa http://msdn.microsoft.com/en-us/library/ms644960(VS.85).aspx
@@ -266,7 +268,7 @@ stw_call_window_proc(int nCode, WPARAM wParam, LPARAM lParam)
 
    return CallNextHookEx(tls_data->hCallWndProcHook, nCode, wParam, lParam);
 }
-#else
+#elif !defined _XBOX_UWP
 LRESULT CALLBACK
 stw_call_window_proc_xbox(HWND hWnd, UINT message,
                           WPARAM wParam, LPARAM lParam)

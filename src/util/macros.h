@@ -33,7 +33,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#ifdef _GAMING_XBOX
+#if defined(_GAMING_XBOX) || defined(_XBOX_UWP)
 #define strdup _strdup
 #define stricmp _stricmp
 #define unlink _unlink
