@@ -101,6 +101,7 @@ with_vulkan_screenshot_layer = get_option('vulkan-layers').contains('screenshot'
 with_vulkan_vram_report_limit_layer = get_option('vulkan-layers').contains('vram-report-limit')
 with_vulkan_anti_lag_layer = get_option('vulkan-layers').contains('anti-lag')
 with_tools = get_option('tools')
+with_uwp = get_option('uwp')
 if with_tools.contains('all')
   with_tools = [
     'asahi',
