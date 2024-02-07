@@ -918,6 +918,7 @@ can_shader_image_load_all_formats(struct d3d12_screen *screen)
    if (!screen->opts.TypedUAVLoadAdditionalFormats)
       return false;
 
+#ifndef _XBOX_UWP
    /* All of these are required by ARB_shader_image_load_store */
    static const DXGI_FORMAT additional_formats[] = {
       DXGI_FORMAT_R16G16B16A16_UNORM,
@@ -951,6 +952,11 @@ can_shader_image_load_all_formats(struct d3d12_screen *screen)
             (D3D12_FORMAT_SUPPORT2_UAV_TYPED_LOAD | D3D12_FORMAT_SUPPORT2_UAV_TYPED_STORE))
          return false;
    }
+#else
+   //TODO: support this injecting conversion 
+   //toward a supported format on load/store operations
+   //see https://github.com/apitrace/dxsdk/blob/master/Include/d3dx_dxgiformatconvert.inl
+#endif
 
    return true;
 }
@@ -1445,7 +1451,7 @@ d3d12_init_screen_command_queue(struct d3d12_screen *screen, D3D12_COMMAND_QUEUE
    queue_desc.Type = screen->queue_type;
    queue_desc.Flags = queue_flags;
 
-#ifndef _GAMING_XBOX
+#ifndef _GAMING_XBOX && !defined _XBOX_UWP
    ID3D12Device9 *device9 = NULL;
    if (SUCCEEDED(screen->dev->QueryInterface(&device9))) {
       if (FAILED(device9->CreateCommandQueue1(&queue_desc, OpenGLOn12CreatorID,
