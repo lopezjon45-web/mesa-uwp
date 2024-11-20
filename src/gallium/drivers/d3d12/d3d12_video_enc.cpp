@@ -671,7 +671,9 @@ d3d12_video_encoder_update_picparams_tracking(struct d3d12_video_encoder *pD3D12
 #endif // D3D12_VIDEO_USE_NEW_ENCODECMDLIST4_INTERFACE
 
    enum pipe_video_format codec = u_reduce_video_profile(pD3D12Enc->base.profile);
+#ifndef _XBOX_UWP
    bool bUsedAsReference = false;
+#endif
    switch (codec) {
 #if VIDEO_CODEC_H264ENC
       case PIPE_VIDEO_FORMAT_MPEG4_AVC:
