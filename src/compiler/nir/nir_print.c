@@ -1707,9 +1707,6 @@ print_intrinsic_instr(nir_intrinsic_instr *instr, print_state *state)
          break;
 
       case NIR_INTRINSIC_PREAMBLE_CLASS: {
-         /* "General" handled above */
-         nir_preamble_class cls = nir_intrinsic_preamble_class(instr);
-         assert(cls == nir_preamble_class_image);
          fprintf(fp, "class=image");
          break;
       }
