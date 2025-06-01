@@ -544,7 +544,7 @@ d3d12_is_missing_dual_src_target(struct nir_shader *s)
    return true;
 }
 
-void
+bool
 d3d12_add_missing_dual_src_target(struct nir_shader *s,
                                   unsigned missing_mask)
 {
