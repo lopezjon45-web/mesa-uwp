@@ -43,6 +43,14 @@ dzn_deps = [
 dzn_flags = [ ]
 dzn_cpp_flags = [ ]
 
+# STRN: When we are using /ZW (C++/CX) via idep_uwputil dependency, vccorlib.lib has to be 
+# linked BEFORE msvcrt.lib to avoid duplicate symbol errors. We exclude the default
+# vccorlib.lib and re-add it explicitly to control link order.
+dzn_link_args = []
+if with_uwp
+  dzn_link_args += ['/NODEFAULTLIB:vccorlib.lib', 'vccorlib.lib']
+endif
+
 if with_platform_windows
   libdzn_files += files('dzn_dxgi.c')
 endif
@@ -68,7 +76,7 @@ libvulkan_dzn = shared_library(
   c_args : dzn_flags,
   cpp_args : dzn_cpp_flags,
   gnu_symbol_visibility : 'hidden',
-  link_args : [ld_args_bsymbolic, ld_args_gc_sections],
+  link_args : [ld_args_bsymbolic, ld_args_gc_sections, dzn_link_args],
   name_prefix : host_machine.system() == 'windows' ? '' : [],
   install : true,
 )

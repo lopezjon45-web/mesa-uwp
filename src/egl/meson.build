@@ -158,9 +158,9 @@ elif with_platform_windows
   incs_for_egl += [inc_wgl, inc_gallium, inc_gallium_aux, inc_mesa]
   link_for_egl += libgallium_wgl
 
-  if with_uwp
-    link_for_egl += [libgdi_uwp]
-  endif
+  # STRN: UWP GDI stub functions (GetDC, ReleaseDC, etc.) are exported from
+  # libgallium_wgl.dll via the DEF file, so EGL gets them through that link.
+  # We do NOT link libgdi_uwp directly to avoid pulling in C++/CX code.
 else
   error('No EGL driver available.')
 endif

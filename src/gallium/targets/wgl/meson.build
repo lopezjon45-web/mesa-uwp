@@ -3,6 +3,13 @@
 
 gallium_wgl_link_args = []
 
+# STRN: When we are using /ZW (C++/CX), vccorlib.lib has to be linked BEFORE msvcrt.lib
+# to avoid duplicate symbol errors. We exclude the default vccorlib.lib and 
+# re-add it explicitly to control link order.
+if with_uwp
+  gallium_wgl_link_args += ['/NODEFAULTLIB:vccorlib.lib', 'vccorlib.lib']
+endif
+
 wgl_def = custom_target(
   'gallium_wgl.def',
   input: 'gallium_wgl.def.in',

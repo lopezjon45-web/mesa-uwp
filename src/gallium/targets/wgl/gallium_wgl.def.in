@@ -54,3 +54,16 @@ stw_interop_flush_objects
 
 _mesa_glapi_get_proc_address
 _mesa_glapi_get_dispatch
+
+; UWP GDI stub functions - exported so EGL can use them
+; these replace Win32 GDI functions that aren't available on UWP
+GetDC
+ReleaseDC
+GetClientRect
+DestroyWindow
+GetPixelFormat
+DescribePixelFormat
+SetPixelFormat
+WindowFromDC
+CreateWindowEx
+AdjustWindowRectEx

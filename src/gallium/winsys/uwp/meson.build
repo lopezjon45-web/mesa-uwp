@@ -25,7 +25,8 @@ libgdi_uwp = static_library(
     inc_include, inc_src, inc_gallium, inc_gallium_aux, inc_gallium_drivers,
     inc_gallium_winsys
   ],
-  cpp_args : '/ZW',
+  # STRN: gdi_uwp.cpp uses WRL (standard C++), not C++/CX syntax (no ^ or ref class).
+  # The /ZW flag is NOT needed here. The C++/CX code is in uwp_util.cpp.
   dependencies: [idep_mesautil, idep_uwputil]
 )
 

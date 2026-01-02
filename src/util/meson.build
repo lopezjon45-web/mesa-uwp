@@ -422,7 +422,6 @@ if with_uwp
   idep_uwputil = declare_dependency(
     link_whole : _libuwputil,
     link_with : _libuwputil,
-    link_args : ['/NODEFAULTLIB:msvcrt', '/NODEFAULTLIB:vccorlib'] # Maybe not needed I think link_whole is tho
   )
 
   install_headers('uwp_util.h')
