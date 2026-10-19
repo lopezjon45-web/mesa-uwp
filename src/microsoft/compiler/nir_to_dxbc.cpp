@@ -1766,8 +1766,8 @@ type_size_vec4(const struct glsl_type *type, bool bindless)
    return glsl_count_attribute_slots(type, false);
 }
 
-static bool
-lower_bit_size_callback_wrap(const nir_instr *instr, void *data)
+static unsigned
+lower_bit_size_callback(const nir_instr *instr, void *data)
 {
    (void)data;
    if (instr->type != nir_instr_type_alu)
@@ -1791,7 +1791,7 @@ optimize_nir(struct nir_shader *s)
       NIR_PASS(progress, s, nir_lower_indirect_derefs_to_if_else_trees, nir_var_function_temp, 4);
       NIR_PASS(progress, s, nir_opt_copy_prop);
       NIR_PASS(progress, s, nir_opt_copy_prop_vars);
-      NIR_PASS(progress, s, nir_lower_bit_size, (nir_lower_bit_size_callback)lower_bit_size_callback_wrap, NULL);
+      NIR_PASS(progress, s, nir_lower_bit_size, lower_bit_size_callback, NULL);
       NIR_PASS(progress, s, nir_opt_remove_phis);
       NIR_PASS(progress, s, nir_opt_dce);
       NIR_PASS(progress, s, nir_opt_if, (nir_opt_if_options)(nir_opt_if_optimize_phi_true_false | nir_opt_if_avoid_64bit_phis));
