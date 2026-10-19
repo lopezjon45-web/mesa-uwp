@@ -15,6 +15,7 @@ files_libdxil_compiler = files(
   'dxil_signature.c',
   'dxil_nir_tess.c',
   'nir_to_dxil.c',
+  'dxbc_hash.c',
   'nir_to_dxbc.cpp',
   'ShaderBinary/src/ShaderBinary.cpp',
 )

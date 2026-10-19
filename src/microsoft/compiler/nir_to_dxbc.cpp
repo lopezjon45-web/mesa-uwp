@@ -31,6 +31,7 @@
 #include "nir_to_dxbc.h"
 
 #include "util/blob.h"
+#include "dxbc_hash.h"
 #include "dxil_container.h"
 #include "dxil_enums.h"
 #include "dxil_module.h"
@@ -2004,6 +2005,7 @@ nir_to_dxbc(struct nir_shader *s, const struct nir_to_dxil_options *opts,
       snprintf(err, errlen, "dxil_container_write failed");
       return false;
    }
+   dxbc_sign(blob->data, blob->size);
 
    return true;
 }
