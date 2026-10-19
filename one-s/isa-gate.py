@@ -92,6 +92,7 @@ def main():
     ap.add_argument("--report-only", action="store_true", help="print the counts and exit 0 whatever they are")
     ap.add_argument("--list", type=int, default=30, help="how many offending functions to list")
     ap.add_argument("--verbose", action="store_true", help="print every offender with its address")
+    ap.add_argument("--dump", metavar="FILE", help="write the whole disassembly of every offending function here")
     args = ap.parse_args()
     allow = [re.compile(a) for a in args.allow]
 
@@ -99,7 +100,14 @@ def main():
     counts = collections.Counter()
     per_function = collections.defaultdict(collections.Counter)
     examples = {}
+    dumped, body, body_of = [], [], None
     for function, address, mnemonic, operands in disassemble(args.tool, args.file):
+        if args.dump:
+            if function != body_of:
+                if body_of in per_function:
+                    dumped.append((body_of, body))
+                body, body_of = [], function
+            body.append(f"  {address} {mnemonic} {operands}")
         total += 1
         kind = classify(mnemonic, operands)
         if kind:
@@ -108,6 +116,13 @@ def main():
             counts[kind] += 1
             per_function[function][kind] += 1
             examples.setdefault((function, kind), f"{mnemonic} {operands}".strip())
+
+    if args.dump:
+        if body_of in per_function:
+            dumped.append((body_of, body))
+        with open(args.dump, "w") as f:
+            for function, lines in dumped:
+                f.write(f"{function}:\n" + "\n".join(lines) + "\n\n")
 
     allowed = 0
     failing = 0

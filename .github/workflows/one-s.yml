@@ -92,7 +92,7 @@ jobs:
           $allow = @()
           $fail = 0
           foreach ($dll in 'libgallium_wgl.dll', 'opengl32.dll') {
-            python one-s/isa-gate.py --tool dumpbin --verbose @allow "out\$dll" 2>&1 | Tee-Object -FilePath "report\gate-$dll.txt"
+            python one-s/isa-gate.py --tool dumpbin --verbose --dump "report\offenders-$dll.txt" @allow "out\$dll" 2>&1 | Tee-Object -FilePath "report\gate-$dll.txt"
             if ($LASTEXITCODE) { $fail = 1 }
             $f16c = (Select-String -Path "report\gate-$dll.txt" -Pattern 'vcvtph2ps|vcvtps2ph' -AllMatches).Count
             "F16C in $dll (Jaguar has F16C; informational): $f16c"
@@ -152,7 +152,7 @@ jobs:
         run: |
           $t = Get-Date
           python $env:MESON setup build_desk --backend=ninja --buildtype=debug --prefix "$env:GITHUB_WORKSPACE\install_desk" `
-            "-Dvulkan-drivers=[]" "-Dtools=[]"
+            "-Dvulkan-drivers=[]" "-Dtools=[]" -Dgallium-d3d12-video=disabled
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           ninja -C build_desk install
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
