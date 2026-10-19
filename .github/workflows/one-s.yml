@@ -60,7 +60,7 @@ jobs:
             --prefix "$env:GITHUB_WORKSPACE\install_uwp" -Dcpp_std=vc++17 `
             "-Dcpp_args=['/D _XBOX_UWP', '/Zi', '/FS']" "-Dc_args=['/D _XBOX_UWP', '/Zi', '/FS']" `
             "-Dc_link_args=['/DEBUG', '/OPT:REF', '/OPT:ICF']" "-Dcpp_link_args=['/DEBUG', '/OPT:REF', '/OPT:ICF']" `
-            -Db_pch=false -Dc_winlibs=[] -Dcpp_winlibs=[]
+            -Db_pch=false "-Dc_winlibs=[]" "-Dcpp_winlibs=[]"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - name: Build (UWP)
@@ -152,7 +152,7 @@ jobs:
         run: |
           $t = Get-Date
           python $env:MESON setup build_desk --backend=ninja --buildtype=debug --prefix "$env:GITHUB_WORKSPACE\install_desk" `
-            -Dvulkan-drivers=[] -Dtools=[]
+            "-Dvulkan-drivers=[]" "-Dtools=[]"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           ninja -C build_desk install
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
