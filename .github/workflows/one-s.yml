@@ -105,7 +105,8 @@ jobs:
             '--allow', '^exec_instruction$'
             # MSVC STL vector algorithm: the AVX2 block is entered only after test __isa_enabled,20h (the AVX2 bit).
             '--allow', '^.anonymous namespace.::__std_find_last_trivial_impl<.anonymous namespace.::_Find_traits_2,unsigned short>$'
-            # CRT: the AVX2 loop runs only when _Avx2WmemEnabled is nonzero; the xref lines below show every write.
+            # CRT: the AVX2 loop runs only when _Avx2WmemEnabled is nonzero. In run 39336919101 the flag sits in the
+            # zero-filled tail of .data (initial value 0) and the --xref lines show no instruction that writes it.
             '--allow', '^wmemcmp$'
           )
           $fail = 0
@@ -116,10 +117,6 @@ jobs:
             $f16c = (Select-String -Path "report\gate-$dll.txt" -Pattern 'vcvtph2ps|vcvtps2ph' -AllMatches).Count
             "F16C in $dll (Jaguar has F16C; informational): $f16c"
           }
-          # Evidence for the wmemcmp allowance: where the CRT defines _Avx2WmemEnabled and its initial value.
-          Get-ChildItem "$env:VCToolsInstallDir\crt\src" -Recurse -File -ErrorAction SilentlyContinue |
-            Select-String -Pattern '_Avx2WmemEnabled' | ForEach-Object { "crt source: $($_.Path):$($_.LineNumber): $($_.Line.Trim())" } |
-            Tee-Object -FilePath report\crt-avx2wmem.txt
           if ($fail) { throw "a DLL has instructions the One S cannot run (see the gate report)" }
 
       - name: Gate report
@@ -166,7 +163,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: install_desk
-          key: mesa-desktop-v2-${{ hashFiles('src/**', 'include/**', 'meson.build', 'meson.options', 'subprojects/*.wrap', 'bin/**', 'one-s/meson/*.patch') }}
+          key: mesa-desktop-v1-${{ hashFiles('src/**', 'include/**', 'meson.build', 'meson.options', 'subprojects/*.wrap', 'bin/**', 'one-s/meson/*.patch') }}
 
       # buildtype=debug so Mesa's debug_printf messages reach the logs (MESA_DEBUG is 1 only for debug).
       - name: Build Mesa (desktop, debug)
@@ -175,7 +172,7 @@ jobs:
         run: |
           $t = Get-Date
           python $env:MESON setup build_desk --backend=ninja --buildtype=debug --prefix "$env:GITHUB_WORKSPACE\install_desk" `
-            "-Dvulkan-drivers=[]" "-Dtools=[]" -Dgallium-d3d12-video=disabled "-Dgallium-drivers=d3d12,softpipe"
+            "-Dvulkan-drivers=[]" "-Dtools=[]" -Dgallium-d3d12-video=disabled
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           ninja -C build_desk install
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
@@ -224,23 +221,6 @@ jobs:
         run: |
           python one-s/glprobe/run.py --exe run\glprobe.exe --out results\sm51 --title "Shader model 5.1 (One S)" `
             --expect one-s/glprobe/expected-dxbc-pass.txt
-          exit $LASTEXITCODE
-
-      # Informational: the known DXIL failures on softpipe, which shares Mesa's GLSL front end but not the d3d12
-      # backend. A pass here puts the bug in the d3d12/DXIL/WARP path; a failure puts it in code the DXBC path shares.
-      - name: glprobe, known DXIL failures on softpipe
-        if: (success() || failure()) && steps.glprobe.outcome == 'success'
-        continue-on-error: true
-        shell: pwsh
-        env:
-          GALLIUM_DRIVER: softpipe
-          WGL_DISABLE_ERROR_DIALOGS: 1
-        run: |
-          $scenes = python -c "import sys; sys.path.insert(0, 'one-s/glprobe'); import run; print(' '.join(run.read_reasons(run.HERE / 'dxil-known-failures.txt')))"
-          $list = "$env:RUNNER_TEMP\known.txt"
-          $scenes -split ' ' | Set-Content $list
-          python one-s/glprobe/run.py --exe run\glprobe.exe --out results\softpipe --title "Known DXIL failures on softpipe" `
-            --renderer softpipe --expect $list @($scenes -split ' ' | ForEach-Object { '--scene', $_ })
           exit $LASTEXITCODE
 
       - name: glprobe results

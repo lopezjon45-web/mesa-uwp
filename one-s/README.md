@@ -8,7 +8,6 @@ The `desktop` job builds the same tree for desktop Windows (artifact `mesa-deskt
 
 1. On the normal DXIL path, every scene must match its reference in `one-s/glprobe/ref/` within 3 per channel and pass its CPU-computed probe pixels. The exceptions are the scenes in `one-s/glprobe/dxil-known-failures.txt`, which the DXIL path draws wrong. They have no reference, and this step fails if one of them starts passing, so the list cannot go stale.
 2. With `D3D12_MAX_SHADER_MODEL=51`, which caps the d3d12 driver at shader model 5.1 as the One S does, only the scenes listed in `one-s/glprobe/expected-dxbc-pass.txt` must pass. This is the ratchet.
-3. The known DXIL failures run again on softpipe, for information only.
 
 Every step prints a per-scene table to the job summary. The `glprobe-results` artifact holds the images, diffs, glprobe logs and Mesa logs.
 
