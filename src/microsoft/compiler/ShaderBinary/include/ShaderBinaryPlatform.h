@@ -1,5 +1,7 @@
 /* Platform shim so ShaderBinary builds outside the WDK (MSVC without strsafe, and Linux). */
 #pragma once
+#include <stdlib.h>
+#include <string.h>
 #ifdef _WIN32
 #include <windows.h>
 #include <strsafe.h>
