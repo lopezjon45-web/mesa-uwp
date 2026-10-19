@@ -233,6 +233,15 @@ nir_src_as_const_value_or_register(ntd_context *ctx, nir_src src, uint32_t num_w
    }
 
    if (swizzle) {
+      if (ret.m_Type == D3D10_SB_OPERAND_TYPE_IMMEDIATE32) {
+         // Immediates carry no swizzle: permute the values instead.
+         UINT v[4];
+         for (unsigned i = 0; i < 4; ++i)
+            v[i] = ret.m_Value[swizzle[i]];
+         for (unsigned i = 0; i < 4; ++i)
+            ret.m_Value[i] = v[i];
+         return ret;
+      }
       uint8_t final_swizzle[4];
       for (unsigned i = 0; i < 4; ++i)
          final_swizzle[i] = ret.SwizzleComponent(swizzle[i]);
@@ -575,11 +584,13 @@ emit_alu(struct ntd_context *ctx, nir_alu_instr *alu)
       if (alu->op == nir_op_idiv) {
          ctx->mod.instructions.push_back(CInstruction(D3D10_SB_OPCODE_XOR, temp_dst(sgn, mask), a, b));
          ctx->mod.instructions.push_back(CInstruction(D3D10_SB_OPCODE_ILT, temp_dst(sgn, mask), sgn, zero));
-         COperandBase negq = q; negq.SetModifier(D3D10_SB_OPERAND_MODIFIER_NEG);
+         COperand4 negq = new_temp(ctx);
+         ctx->mod.instructions.push_back(CInstruction(D3D10_SB_OPCODE_INEG, temp_dst(negq, mask), q));
          ctx->mod.instructions.push_back(CInstruction(D3D10_SB_OPCODE_MOVC, temp_dst(res, mask), sgn, negq, q));
       } else {
          ctx->mod.instructions.push_back(CInstruction(D3D10_SB_OPCODE_ILT, temp_dst(sgn, mask), a, zero));
-         COperandBase negr = r; negr.SetModifier(D3D10_SB_OPERAND_MODIFIER_NEG);
+         COperand4 negr = new_temp(ctx);
+         ctx->mod.instructions.push_back(CInstruction(D3D10_SB_OPCODE_INEG, temp_dst(negr, mask), r));
          ctx->mod.instructions.push_back(CInstruction(D3D10_SB_OPCODE_MOVC, temp_dst(res, mask), sgn, negr, r));
          if (alu->op == nir_op_imod) {
             /* imod: if result != 0 and sign(result) != sign(b), add b */
@@ -757,6 +768,13 @@ emit_alu(struct ntd_context *ctx, nir_alu_instr *alu)
       return true;
    }
 
+   case nir_op_ufind_msb_rev:
+      store_instruction(ctx, &alu->def, get_intr_1_args(ctx, D3D11_SB_OPCODE_FIRSTBIT_HI, alu));
+      return true;
+   case nir_op_ifind_msb_rev:
+      store_instruction(ctx, &alu->def, get_intr_1_args(ctx, D3D11_SB_OPCODE_FIRSTBIT_SHI, alu));
+      return true;
+
    case nir_op_pack_half_2x16_split: {
       COperandBase lo = get_alu_src_as_const_value_or_register(ctx, alu, ncomp, 0);
       COperandBase hi = get_alu_src_as_const_value_or_register(ctx, alu, ncomp, 1);
@@ -919,7 +937,13 @@ emit_load_ubo_vec4(struct ntd_context *ctx, nir_intrinsic_instr *intr)
    src.m_Type = D3D10_SB_OPERAND_TYPE_CONSTANT_BUFFER;
    src.SetSwizzle();
    src.m_NumComponents = D3D10_SB_OPERAND_4_COMPONENT;
-   if (is_sm51(ctx)) {
+   if (is_sm51(ctx) && !ctx->vulkan) {
+      // GL: the block index is the b register, and emit_dcl declared one range (ID 0) over all of them.
+      src.m_IndexDimension = D3D10_SB_OPERAND_INDEX_3D;
+      src.SetIndex(0, 0);
+      src_to_index(ctx, 0, intr->src[0], src, 1);
+      src_to_index(ctx, 0, intr->src[1], src, 2);
+   } else if (is_sm51(ctx)) {
       src.m_IndexDimension = D3D10_SB_OPERAND_INDEX_3D;
       nir_binding binding = nir_chase_binding(intr->src[0]);
       nir_variable *var = nir_get_binding_variable(ctx->shader, binding);
@@ -928,7 +952,7 @@ emit_load_ubo_vec4(struct ntd_context *ctx, nir_intrinsic_instr *intr)
          return false;
       }
       src.SetIndex(0, var->data.driver_location);
-      src_to_index(ctx, ctx->vulkan ? binding.binding : 0, intr->src[0], src, 1);
+      src_to_index(ctx, binding.binding, intr->src[0], src, 1);
       src_to_index(ctx, 0, intr->src[1], src, 2);
    } else {
       src.m_IndexDimension = D3D10_SB_OPERAND_INDEX_2D;
@@ -1567,14 +1591,33 @@ emit_dcl(struct ntd_context *ctx)
 {
    ctx->mod.shader.EmitGlobalFlagsDecl(D3D10_SB_GLOBAL_FLAG_REFACTORING_ALLOWED);
 
-   nir_foreach_variable_with_modes(ubo, ctx->shader, nir_var_mem_ubo) {
-      unsigned size = get_dword_size(ubo->interface_type ? ubo->interface_type : ubo->type);
-      if (is_sm51(ctx)) {
-         ctx->mod.shader.EmitIndexableConstantBufferDecl(ubo->data.driver_location,
-            ubo->data.binding, ubo->data.binding, size,
-            D3D10_SB_CONSTANT_BUFFER_DYNAMIC_INDEXED, ubo->data.descriptor_set);
-      } else {
-         ctx->mod.shader.EmitConstantBufferDecl(ubo->data.binding, size, D3D10_SB_CONSTANT_BUFFER_DYNAMIC_INDEXED);
+   if (!ctx->vulkan) {
+      /* GL: constant buffers are bound by block index, b0 only when the default
+       * uniform block exists (the same rule as nir_to_dxil and the root signature).
+       * The declared size is the SM 5 maximum; a smaller bound buffer reads zero. */
+      const unsigned max_vec4s = 4096;
+      unsigned num_ubos = ctx->shader->info.num_ubos;
+      bool has_ubo0 = ctx->shader->num_uniforms > 0 && ctx->shader->info.first_ubo_is_default_ubo;
+      unsigned first = has_ubo0 || !ctx->shader->info.first_ubo_is_default_ubo ? 0 : 1;
+      if (num_ubos > first) {
+         if (is_sm51(ctx)) {
+            ctx->mod.shader.EmitIndexableConstantBufferDecl(0, first, num_ubos - 1, max_vec4s,
+               D3D10_SB_CONSTANT_BUFFER_DYNAMIC_INDEXED, 0);
+         } else {
+            for (unsigned i = first; i < num_ubos; ++i)
+               ctx->mod.shader.EmitConstantBufferDecl(i, max_vec4s, D3D10_SB_CONSTANT_BUFFER_DYNAMIC_INDEXED);
+         }
+      }
+   } else {
+      nir_foreach_variable_with_modes(ubo, ctx->shader, nir_var_mem_ubo) {
+         unsigned size = get_dword_size(ubo->interface_type ? ubo->interface_type : ubo->type);
+         if (is_sm51(ctx)) {
+            ctx->mod.shader.EmitIndexableConstantBufferDecl(ubo->data.driver_location,
+               ubo->data.binding, ubo->data.binding, size,
+               D3D10_SB_CONSTANT_BUFFER_DYNAMIC_INDEXED, ubo->data.descriptor_set);
+         } else {
+            ctx->mod.shader.EmitConstantBufferDecl(ubo->data.binding, size, D3D10_SB_CONSTANT_BUFFER_DYNAMIC_INDEXED);
+         }
       }
    }
 
@@ -1641,6 +1684,18 @@ emit_dcl(struct ntd_context *ctx)
                ctx->mod.shader.EmitInputSystemInterpretedValueDecl(D3D10_SB_OPERAND_TYPE_INPUT, elem.reg, write_mask, D3D10_SB_NAME_POSITION);
             }
             break;
+         case DXIL_PROG_SEM_CLIP_DISTANCE:
+         case DXIL_PROG_SEM_CULL_DISTANCE: {
+            D3D10_SB_NAME name = sem == DXIL_PROG_SEM_CLIP_DISTANCE ? D3D10_SB_NAME_CLIP_DISTANCE : D3D10_SB_NAME_CULL_DISTANCE;
+            if (ctx->mod.shader_kind == D3D10_SB_PIXEL_SHADER) {
+               ctx->mod.shader.EmitPSInputSystemInterpretedValueDecl(elem.reg, write_mask, D3D10_SB_INTERPOLATION_LINEAR, name);
+            } else if (gs) {
+               ctx->mod.shader.EmitInputSystemInterpretedValueDecl2D(vertices, elem.reg, write_mask, name);
+            } else {
+               ctx->mod.shader.EmitInputSystemInterpretedValueDecl(D3D10_SB_OPERAND_TYPE_INPUT, elem.reg, write_mask, name);
+            }
+            break;
+         }
          case DXIL_PROG_SEM_PRIMITIVE_ID:
             ctx->mod.shader.EmitInputPrimIdDecl();
             break;
@@ -1683,6 +1738,12 @@ emit_dcl(struct ntd_context *ctx)
             break;
          case DXIL_PROG_SEM_POSITION:
             ctx->mod.shader.EmitOutputSystemInterpretedValueDecl(elem.reg, write_mask, D3D10_SB_NAME_POSITION);
+            break;
+         case DXIL_PROG_SEM_CLIP_DISTANCE:
+            ctx->mod.shader.EmitOutputSystemInterpretedValueDecl(elem.reg, write_mask, D3D10_SB_NAME_CLIP_DISTANCE);
+            break;
+         case DXIL_PROG_SEM_CULL_DISTANCE:
+            ctx->mod.shader.EmitOutputSystemInterpretedValueDecl(elem.reg, write_mask, D3D10_SB_NAME_CULL_DISTANCE);
             break;
          case DXIL_PROG_SEM_DEPTH:
             ctx->mod.shader.EmitODepthDecl();
