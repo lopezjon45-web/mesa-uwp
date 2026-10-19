@@ -50,7 +50,7 @@
 extern "C" {
 #endif
 
-#if !defined(_GNU_SOURCE) || defined(__APPLE__) || defined(DETECT_OS_WINDOWS)
+#if !defined(_GNU_SOURCE) || defined(__APPLE__) || DETECT_OS_WINDOWS
 
 #define strchrnul util_strchrnul
 static inline char *

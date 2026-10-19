@@ -918,3 +918,10 @@ option(
   value : false,
   description : 'Build panfrost Rust components.'
 )
+
+option(
+  'uwp',
+  type : 'boolean',
+  value : false,
+  description : 'Build for UWP (XboxEmulationHub mesa-uwp fork; the option the fork reads but never declared)'
+)
