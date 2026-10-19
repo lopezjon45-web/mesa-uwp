@@ -18,6 +18,15 @@ typedef const char *LPCSTR;
 #ifndef __in_ecount
 #define __in_ecount(n)
 #endif
+#ifndef __in_range
+#define __in_range(lo, hi)
+#endif
+#ifndef __field_ecount_part
+#define __field_ecount_part(size, count)
+#endif
+#ifndef __analysis_assume
+#define __analysis_assume(expr)
+#endif
 static inline HRESULT StringCchCopyA(char *dst, size_t n, const char *src)
 {
    if (!n) return E_INVALIDARG;
