@@ -382,10 +382,12 @@ d3d12_init_screen_caps(struct d3d12_screen *screen)
    caps->sample_shading = true;
    caps->stream_output_pause_resume = true;
    caps->stream_output_interleave_buffers = true;
-   /* nir_to_dxbc emits no 64-bit integer, double or wave instructions. */
+   /* nir_to_dxbc emits no 64-bit integer or wave instructions. Doubles stay
+    * on: GL 4.0 requires ARB_gpu_shader_fp64, and the NIR options lower them
+    * to 32-bit float for DXBC as they do for adapters without fp64. */
    bool dxbc = screen->shader_backend == D3D12_SHADER_BACKEND_DXBC;
    caps->int64 = !dxbc;
-   caps->doubles = !dxbc;
+   caps->doubles = true;
    caps->device_reset_status_query = true;
    caps->robust_buffer_access_behavior = true;
    caps->memobj = true;
