@@ -67,6 +67,11 @@ struct d3d12_memory_info {
    uint64_t budget;   // local + nonlocal
 };
 
+enum d3d12_shader_backend {
+   D3D12_SHADER_BACKEND_DXIL,
+   D3D12_SHADER_BACKEND_DXBC,
+};
+
 struct d3d12_screen {
    struct pipe_screen base;
    struct sw_winsys *winsys;
@@ -131,6 +136,8 @@ struct d3d12_screen {
 
    /* capabilities */
    D3D_FEATURE_LEVEL max_feature_level;
+   /* Devices below shader model 6.0 (the Xbox One S) only load DXBC. */
+   enum d3d12_shader_backend shader_backend;
 #ifdef HAVE_GALLIUM_D3D12_GRAPHICS
    enum dxil_shader_model max_shader_model;
    nir_shader_compiler_options nir_options;

@@ -382,8 +382,10 @@ d3d12_init_screen_caps(struct d3d12_screen *screen)
    caps->sample_shading = true;
    caps->stream_output_pause_resume = true;
    caps->stream_output_interleave_buffers = true;
-   caps->int64 = true;
-   caps->doubles = true;
+   /* nir_to_dxbc emits no 64-bit integer, double or wave instructions. */
+   bool dxbc = screen->shader_backend == D3D12_SHADER_BACKEND_DXBC;
+   caps->int64 = !dxbc;
+   caps->doubles = !dxbc;
    caps->device_reset_status_query = true;
    caps->robust_buffer_access_behavior = true;
    caps->memobj = true;
@@ -401,8 +403,8 @@ d3d12_init_screen_caps(struct d3d12_screen *screen)
    caps->texture_barrier = true;
    caps->gl_spirv = true;
    caps->polygon_offset_clamp = true;
-   caps->shader_group_vote = true;
-   caps->shader_ballot = true;
+   caps->shader_group_vote = !dxbc;
+   caps->shader_ballot = !dxbc;
    caps->query_pipeline_statistics = true;
    caps->query_so_overflow = true;
 
@@ -919,6 +921,8 @@ create_device(util_dl_library *d3d12_mod, IUnknown *adapter, ID3D12DeviceFactory
 static bool
 can_attribute_at_vertex(struct d3d12_screen *screen)
 {
+   if (screen->shader_backend == D3D12_SHADER_BACKEND_DXBC)
+      return false;
 #ifdef _XBOX_UWP
    return false; //unsupported
 #else
@@ -1756,6 +1760,8 @@ d3d12_init_screen(struct d3d12_screen *screen, IUnknown *adapter)
       if (sm_cap)
          screen->max_shader_model = MIN2(screen->max_shader_model,
                                          (enum dxil_shader_model)(((sm_cap / 10) << 16) | (sm_cap % 10)));
+      screen->shader_backend = screen->max_shader_model < SHADER_MODEL_6_0 ?
+         D3D12_SHADER_BACKEND_DXBC : D3D12_SHADER_BACKEND_DXIL;
    }
 #endif // HAVE_GALLIUM_D3D12_GRAPHICS
 
@@ -1850,8 +1856,9 @@ d3d12_init_screen(struct d3d12_screen *screen, IUnknown *adapter)
          (screen->vendor_id == HW_VENDOR_MICROSOFT &&
             (screen->driver_version >> 48) > 1 && (screen->driver_version >> 48) <= 10 &&
             ((screen->driver_version >> 16) & 0xffff) < known_good_warp_version_build);
-      unsigned supported_int_sizes = 32 | (screen->opts1.Int64ShaderOps && !warp_with_broken_int64 ? 64 : 0);
-      unsigned supported_float_sizes = 32 | (screen->opts.DoublePrecisionFloatShaderOps ? 64 : 0);
+      bool dxbc = screen->shader_backend == D3D12_SHADER_BACKEND_DXBC;
+      unsigned supported_int_sizes = 32 | (!dxbc && screen->opts1.Int64ShaderOps && !warp_with_broken_int64 ? 64 : 0);
+      unsigned supported_float_sizes = 32 | (!dxbc && screen->opts.DoublePrecisionFloatShaderOps ? 64 : 0);
       dxil_get_nir_compiler_options(&screen->nir_options,
                                     screen->max_shader_model,
                                     supported_int_sizes,
