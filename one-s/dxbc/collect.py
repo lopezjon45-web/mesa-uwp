@@ -54,11 +54,12 @@ def run_pass(exe, out, scenes, ref, env_extra, dump, capture=False):
 def timings(out, scenes):
     rows = []
     for scene in scenes:
-        log = out / f"{scene}.mesa.log"
-        if not log.exists():
-            continue
-        for m in TIMING.finditer(log.read_text(errors="replace")):
-            rows.append((scene, m.group(1), m.group(2), int(m.group(3)), float(m.group(4))))
+        # The driver prints the line on stderr, which run.py keeps in <scene>.log.
+        for log in (out / f"{scene}.log", out / f"{scene}.mesa.log"):
+            if not log.exists():
+                continue
+            for m in TIMING.finditer(log.read_text(errors="replace")):
+                rows.append((scene, m.group(1), m.group(2), int(m.group(3)), float(m.group(4))))
     return rows
 
 
