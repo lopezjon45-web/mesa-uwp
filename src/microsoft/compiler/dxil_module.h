@@ -432,11 +432,11 @@ dxil_module_get_res_bind_const(struct dxil_module *m,
                                uint32_t lower_bound,
                                uint32_t upper_bound,
                                uint32_t space,
-                               uint8_t class);
+                               uint8_t resource_class);
 
 const struct dxil_value *
 dxil_module_get_res_props_const(struct dxil_module *m,
-                                enum dxil_resource_class class,
+                                enum dxil_resource_class resource_class,
                                 const struct dxil_mdnode *mdnode);
 
 const struct dxil_value *
@@ -453,7 +453,7 @@ dxil_module_get_uav_res_props_const(struct dxil_module *m,
 
 const struct dxil_value *
 dxil_module_get_buffer_res_props_const(struct dxil_module *m,
-                                       enum dxil_resource_class class,
+                                       enum dxil_resource_class resource_class,
                                        enum dxil_resource_kind kind);
 
 const struct dxil_mdnode *
