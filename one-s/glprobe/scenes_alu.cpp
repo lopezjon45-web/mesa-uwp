@@ -402,3 +402,25 @@ void main() {
    probe(ctx, 45, 50, want);
    probe(ctx, 30, 33, want);
 }
+
+void scene_fp64(SceneCtx &ctx)
+{
+   // x = 1.1 and y = 3.0 arrive as bit patterns, so nothing folds at compile time. The bit patterns
+   // of the results separate true fp64 (and bit-exact software fp64) from float arithmetic: in
+   // float, x * y rounds to 3.3f and fma(x, y, -3.3) is 0.
+   const char *decls = "uniform uvec4 d;";
+   const char *build = "   double x = packDouble2x32(d.xy);\n   double y = packDouble2x32(d.zw);";
+   run_uint_cases(ctx, decls,
+                  {
+                     {"unpackDouble2x32(x * y).x", 0x66666667u, true, build},
+                     {"unpackDouble2x32(x * y).y", 0x400A6666u, true, build},
+                     {"unpackDouble2x32(fma(x, y, -3.3lf)).y", 0x3CC00000u, true, build},
+                     {"unpackDouble2x32(x + 1e-9lf).x", 0x99DE51CAu, true, build},
+                     {"unpackDouble2x32(x / y).x", 0x77777778u, true, build},
+                     {"uint(x * y > 3.3lf)", 1u, true, build},
+                     {"uint(float(x) * float(y) == 3.3)", 1u, true, build},
+                  },
+                  [](GLuint p) {
+                     glUniform4ui(glGetUniformLocation(p, "d"), 0x9999999Au, 0x3FF19999u, 0u, 0x40080000u);
+                  });
+}

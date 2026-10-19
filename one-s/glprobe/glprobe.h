@@ -140,6 +140,7 @@ using namespace glp;
    X(bitfield_ops, "bitfieldExtract/Insert, bitCount, findLSB, findMSB, bitfieldReverse (xemu vsh CMP decode)") \
    X(float_bits, "floatBitsToUint/Int and uintBits/intBitsToFloat (xemu FLOAT_MAX and clamp constants)") \
    X(precise_fma, "precise qualifier with fma (xemu psh Kahan determinant)") \
+   X(fp64, "double arithmetic, fma, compare and bit patterns (ARB_gpu_shader_fp64, required by GL 4.0)") \
    X(varying_smooth, "perspective-correct smooth varying interpolation with distinct vertex w") \
    X(varying_flat, "flat float and int varyings take the last vertex by default") \
    X(varying_noperspective, "noperspective varying interpolation with distinct vertex w") \
