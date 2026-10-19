@@ -1781,6 +1781,14 @@ lower_bit_size_callback(const nir_instr *instr, void *data)
    return 0;
 }
 
+/* Same rule as nir_to_dxil: merge adjacent loads into a power-of-two vector. */
+static bool
+vectorize_filter(unsigned align_mul, unsigned align_offset, unsigned bit_size, unsigned num_components,
+                 int64_t hole_size, nir_intrinsic_instr *low, nir_intrinsic_instr *high, void *data)
+{
+   return hole_size <= 0 && util_is_power_of_two_nonzero(num_components);
+}
+
 static void
 optimize_nir(struct nir_shader *s)
 {
@@ -1937,6 +1945,7 @@ nir_to_dxbc(struct nir_shader *s, const struct nir_to_dxil_options *opts,
    optimize_nir(s);
 
    nir_load_store_vectorize_options vectorize_opts = {};
+   vectorize_opts.callback = vectorize_filter;
    vectorize_opts.modes = nir_var_mem_ubo;
    NIR_PASS(_, s, nir_opt_load_store_vectorize, &vectorize_opts);
    NIR_PASS(_, s, nir_lower_ubo_vec4);
