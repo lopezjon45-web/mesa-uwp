@@ -1,0 +1,224 @@
+# Mesa GL-on-D3D12 for the Xbox One S.
+#
+# uwp:     builds libgallium_wgl.dll and opengl32.dll the way the UWP release is built (README.rst), adds PDBs,
+#          and fails if either DLL has an instruction the One S CPU (AMD Jaguar) cannot run.
+# desktop: builds the same tree for desktop Windows and runs glprobe on the runner's WARP adapter twice:
+#          on the normal DXIL path, where every scene must match its reference image, and with
+#          D3D12_MAX_SHADER_MODEL=51 (what the One S reports), where only the scenes listed in
+#          one-s/glprobe/expected-dxbc-pass.txt must match.
+name: one-s
+
+on:
+  push:
+    branches: [one-s-dxbc]
+  workflow_dispatch:
+    inputs:
+      write_refs:
+        description: Upload the DXIL images as new references instead of gating on the committed ones.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  MESON_TAG: 1.4.2
+  POWERSHELL_TELEMETRY_OPTOUT: 1
+
+jobs:
+  uwp:
+    runs-on: windows-2022
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # The UWP release is configured with a meson fork (aerisarn/meson, 1.3.99) that adds --uwp. This tree
+      # needs meson >= 1.4.0, so the fork's three commits are carried as a patch onto meson 1.4.2.
+      - name: Tools
+        shell: pwsh
+        run: |
+          python -m pip install --quiet mako pyyaml packaging ninja
+          choco install winflexbison3 -y --no-progress | Out-Null
+          git clone --quiet --depth 1 --branch $env:MESON_TAG https://github.com/mesonbuild/meson.git "$env:RUNNER_TEMP\meson"
+          git -C "$env:RUNNER_TEMP\meson" apply "$env:GITHUB_WORKSPACE\one-s\meson\uwp-on-1.4.2.patch"
+          "MESON=$env:RUNNER_TEMP\meson\meson.py" >> $env:GITHUB_ENV
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # README.rst's command, plus /Zi /FS and /DEBUG for PDBs. /DEBUG turns off /OPT:REF and /OPT:ICF unless
+      # they are given, so they are given and the code matches a build without PDBs.
+      - name: Configure (UWP, release)
+        shell: pwsh
+        run: |
+          python $env:MESON setup build_uwp --wipe --backend=vs --uwp --buildtype=release `
+            --prefix "$env:GITHUB_WORKSPACE\install_uwp" -Dcpp_std=vc++17 `
+            "-Dcpp_args=['/D _XBOX_UWP', '/Zi', '/FS']" "-Dc_args=['/D _XBOX_UWP', '/Zi', '/FS']" `
+            "-Dc_link_args=['/DEBUG', '/OPT:REF', '/OPT:ICF']" "-Dcpp_link_args=['/DEBUG', '/OPT:REF', '/OPT:ICF']" `
+            -Db_pch=false -Dc_winlibs=[] -Dcpp_winlibs=[]
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Build (UWP)
+        shell: pwsh
+        run: |
+          $t = Get-Date
+          python $env:MESON compile -C build_uwp
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          python $env:MESON install -C build_uwp --no-rebuild
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          "build minutes $([int]((Get-Date) - $t).TotalMinutes)"
+
+      - name: Collect DLLs and PDBs
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          foreach ($name in 'libgallium_wgl', 'opengl32') {
+            Copy-Item "install_uwp\bin\$name.dll" out\
+            $pdb = Get-ChildItem build_uwp -Recurse -Filter "$name.pdb" | Select-Object -First 1
+            if (-not $pdb) { throw "no $name.pdb under build_uwp" }
+            Copy-Item $pdb.FullName out\
+          }
+          Get-ChildItem out | ForEach-Object { "$($_.Name) $($_.Length)" }
+
+      - name: Gate on instructions the One S cannot run
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force report | Out-Null
+          $allow = @()
+          $fail = 0
+          foreach ($dll in 'libgallium_wgl.dll', 'opengl32.dll') {
+            python one-s/isa-gate.py --tool dumpbin --verbose @allow "out\$dll" 2>&1 | Tee-Object -FilePath "report\gate-$dll.txt"
+            if ($LASTEXITCODE) { $fail = 1 }
+            $f16c = (Select-String -Path "report\gate-$dll.txt" -Pattern 'vcvtph2ps|vcvtps2ph' -AllMatches).Count
+            "F16C in $dll (Jaguar has F16C; informational): $f16c"
+          }
+          if ($fail) { throw "a DLL has instructions the One S cannot run (see the gate report)" }
+
+      - name: Gate report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uwp-gate-report
+          path: report
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mesa-uwp-one-s
+          path: out
+          if-no-files-found: error
+
+  desktop:
+    runs-on: windows-2022
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Tools
+        shell: pwsh
+        run: |
+          python -m pip install --quiet mako pyyaml packaging ninja
+          choco install winflexbison3 -y --no-progress | Out-Null
+          git clone --quiet --depth 1 --branch $env:MESON_TAG https://github.com/mesonbuild/meson.git "$env:RUNNER_TEMP\meson"
+          git -C "$env:RUNNER_TEMP\meson" apply "$env:GITHUB_WORKSPACE\one-s\meson\uwp-on-1.4.2.patch"
+          "MESON=$env:RUNNER_TEMP\meson\meson.py" >> $env:GITHUB_ENV
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # Keyed on everything that goes into the Mesa build, so a change under one-s/glprobe/ reuses the DLLs. Saved
+      # right after the build, not at the end of the job, so a failing glprobe step still keeps it.
+      - name: Restore Mesa build
+        id: mesa
+        uses: actions/cache/restore@v4
+        with:
+          path: install_desk
+          key: mesa-desktop-v1-${{ hashFiles('src/**', 'include/**', 'meson.build', 'meson.options', 'subprojects/*.wrap', 'bin/**', 'one-s/meson/*.patch') }}
+
+      # buildtype=debug so Mesa's debug_printf messages reach the logs (MESA_DEBUG is 1 only for debug).
+      - name: Build Mesa (desktop, debug)
+        if: steps.mesa.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $t = Get-Date
+          python $env:MESON setup build_desk --backend=ninja --buildtype=debug --prefix "$env:GITHUB_WORKSPACE\install_desk" `
+            -Dvulkan-drivers=[] -Dtools=[]
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ninja -C build_desk install
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          "build minutes $([int]((Get-Date) - $t).TotalMinutes)"
+
+      - name: Save Mesa build
+        if: steps.mesa.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: install_desk
+          key: ${{ steps.mesa.outputs.cache-primary-key }}
+
+      - name: Build glprobe
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force run | Out-Null
+          Push-Location run
+          cmd /c "$env:GITHUB_WORKSPACE\one-s\glprobe\build.cmd" "$env:GITHUB_WORKSPACE\include"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          Pop-Location
+          Copy-Item install_desk\bin\*.dll run\
+          $dxil = Get-ChildItem "$env:WindowsSdkDir\bin" -Recurse -Filter dxil.dll | Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName | Select-Object -Last 1
+          if (-not $dxil) { throw "no x64 dxil.dll in the Windows SDK" }
+          "dxil.dll from $($dxil.FullName)"
+          Copy-Item $dxil.FullName run\
+          Get-ChildItem run | ForEach-Object { "$($_.Name) $($_.Length)" }
+
+      - name: glprobe, DXIL path (every scene must pass)
+        shell: pwsh
+        env:
+          GALLIUM_DRIVER: d3d12
+          WGL_DISABLE_ERROR_DIALOGS: 1
+        run: |
+          if ('${{ inputs.write_refs }}' -eq 'true') {
+            New-Item -ItemType File -Force "$env:RUNNER_TEMP\none.txt" | Out-Null
+            python one-s/glprobe/run.py --exe run\glprobe.exe --out results\dxil --title "DXIL path (writing references)" `
+              --expect "$env:RUNNER_TEMP\none.txt" --write-ref results\new-ref
+          } else {
+            python one-s/glprobe/run.py --exe run\glprobe.exe --out results\dxil --title "DXIL path" --expect-all
+          }
+          exit $LASTEXITCODE
+
+      - name: glprobe, shader model capped at 5.1 (ratchet)
+        if: success() || failure()
+        shell: pwsh
+        env:
+          GALLIUM_DRIVER: d3d12
+          WGL_DISABLE_ERROR_DIALOGS: 1
+          D3D12_MAX_SHADER_MODEL: 51
+        run: |
+          python one-s/glprobe/run.py --exe run\glprobe.exe --out results\sm51 --title "Shader model 5.1 (One S)" `
+            --expect one-s/glprobe/expected-dxbc-pass.txt
+          exit $LASTEXITCODE
+
+      - name: glprobe results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: glprobe-results
+          path: results
+          if-no-files-found: ignore
+
+      - name: Desktop DLLs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mesa-desktop-debug
+          path: install_desk/bin
+          if-no-files-found: ignore
