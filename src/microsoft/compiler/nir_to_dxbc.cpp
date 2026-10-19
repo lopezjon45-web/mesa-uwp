@@ -21,12 +21,9 @@
  * IN THE SOFTWARE.
  */
 
-/* Port notes (uwp-26.2.2): nir_dest/nir_ssa_def/nir_register are gone, so
- * every value is a nir_def and phi webs come back from nir_convert_from_ssa
- * as decl_reg/load_reg/store_reg intrinsics. load_ubo_dxil became
- * load_ubo_vec4, discard became terminate/demote, scoped_barrier became
- * barrier, and the signature and sysvalue helpers live in dxil_signature.c
- * and here instead of the MR's dxil_nir.c additions. */
+/* NIR to DXBC (shader model 5.0 and 5.1). Origin: Mesa MR !14253 (Jesse
+ * Natalie, 2021), ported to this tree's NIR; the token encoder is
+ * ShaderBinary/, the token definitions come from DirectX-Headers. */
 
 #include "nir_to_dxbc.h"
 
