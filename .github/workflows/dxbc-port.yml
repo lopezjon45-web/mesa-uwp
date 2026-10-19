@@ -137,6 +137,26 @@ jobs:
           "``````" >> $env:GITHUB_STEP_SUMMARY
           exit $rc
 
+      # glprobe prints "CRASH code=... at <dll>+0x<rva>"; name the function with the debug build's PDB.
+      - name: Symbolize crash addresses
+        if: always()
+        shell: pwsh
+        run: |
+          $sym = Get-ChildItem "C:\Program Files\Microsoft Visual Studio" -Recurse -Filter llvm-symbolizer.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          $hits = Select-String -Path results\*\*.log -Pattern 'CRASH code=\S+ at (\S+?)\+0x([0-9a-fA-F]+)' -AllMatches
+          if (-not $hits) { "no crashes"; exit 0 }
+          if (-not $sym) { "llvm-symbolizer not found"; exit 0 }
+          "## Crash sites`n" >> $env:GITHUB_STEP_SUMMARY
+          foreach ($h in $hits) {
+            foreach ($m in $h.Matches) {
+              $dll = Join-Path "run" $m.Groups[1].Value
+              $rva = $m.Groups[2].Value
+              $where = & $sym.FullName --obj="$dll" "0x$rva" 2>&1 | Select-Object -First 2
+              $line = "$($h.Filename): $($m.Groups[1].Value)+0x$rva -> $($where -join ' ')"
+              $line; $line >> $env:GITHUB_STEP_SUMMARY
+            }
+          }
+
       - name: Results
         if: always()
         uses: actions/upload-artifact@v4
