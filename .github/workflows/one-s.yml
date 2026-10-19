@@ -8,9 +8,10 @@
 #          one-s/glprobe/expected-dxbc-pass.txt must match.
 name: one-s
 
+# Runs on a push to any branch that carries this file, so a branch that merges one-s-dxbc (dxbc-port)
+# gets the same gate without editing it.
 on:
   push:
-    branches: [one-s-dxbc]
   workflow_dispatch:
     inputs:
       write_refs:
@@ -89,10 +90,33 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force report | Out-Null
-          $allow = @()
+          # Functions whose AVX2 instructions run only behind a CPU-feature check a Jaguar fails, each proven in
+          # the symbolized disassembly of run 39329058844 (report/offenders-libgallium_wgl.dll.txt): every
+          # offender lies between the guard's branch and its target, and no other branch enters that range
+          # before the last offender. __isa_available reaches 5 (AVX2) only with CPUID.7:EBX.AVX2.
+          $allow = @(
+            # MSVC's auto-vectorized copy of a small shift loop (vpsllvd/vpsrlvd/vpsravd xmm), entered only after
+            # cmp __isa_available,5 / jl to the scalar loop.
+            '--allow', '^stw_st_framebuffer_validate$'
+            '--allow', '^emit_store$'
+            '--allow', '^emit_store_output_via_intrinsic$'
+            '--allow', '^_mesa_replicate_colormask$'
+            '--allow', '^ptn_get_src$'
+            '--allow', '^analyse_from_scratch$'
+            '--allow', '^lower_builtin_instr$'
+            '--allow', '^_mesa_combine_swizzles$'
+            '--allow', '^_mesa_layout_parameters$'
+            # Same, with __isa_available loaded into r13d at entry and compared (cmp r13d,5 / jl) before the loop.
+            '--allow', '^exec_instruction$'
+            # MSVC STL vector algorithm: the AVX2 block is entered only after test __isa_enabled,20h (the AVX2 bit).
+            '--allow', '^.anonymous namespace.::__std_find_last_trivial_impl<.anonymous namespace.::_Find_traits_2,unsigned short>$'
+            # CRT: the AVX2 loop runs only when _Avx2WmemEnabled is nonzero; the xref lines below show every write.
+            '--allow', '^wmemcmp$'
+          )
           $fail = 0
           foreach ($dll in 'libgallium_wgl.dll', 'opengl32.dll') {
-            python one-s/isa-gate.py --tool dumpbin --verbose --dump "report\offenders-$dll.txt" @allow "out\$dll" 2>&1 | Tee-Object -FilePath "report\gate-$dll.txt"
+            python one-s/isa-gate.py --tool dumpbin --verbose --dump "report\offenders-$dll.txt" --also-dump '__isa_available_init' `
+              --xref _Avx2WmemEnabled --xref __isa_available --xref __isa_enabled @allow "out\$dll" 2>&1 | Tee-Object -FilePath "report\gate-$dll.txt"
             if ($LASTEXITCODE) { $fail = 1 }
             $f16c = (Select-String -Path "report\gate-$dll.txt" -Pattern 'vcvtph2ps|vcvtps2ph' -AllMatches).Count
             "F16C in $dll (Jaguar has F16C; informational): $f16c"

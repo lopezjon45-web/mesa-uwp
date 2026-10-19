@@ -93,21 +93,33 @@ def main():
     ap.add_argument("--list", type=int, default=30, help="how many offending functions to list")
     ap.add_argument("--verbose", action="store_true", help="print every offender with its address")
     ap.add_argument("--dump", metavar="FILE", help="write the whole disassembly of every offending function here")
+    ap.add_argument("--also-dump", action="append", default=[], metavar="REGEX",
+                    help="with --dump, also write the functions whose names match, offending or not")
+    ap.add_argument("--xref", action="append", default=[], metavar="SYMBOL",
+                    help="print every instruction whose operands name this symbol, with its function")
     args = ap.parse_args()
     allow = [re.compile(a) for a in args.allow]
+    also_dump = [re.compile(a) for a in args.also_dump]
 
     total = 0
     counts = collections.Counter()
     per_function = collections.defaultdict(collections.Counter)
     examples = {}
     dumped, body, body_of = [], [], None
+
+    def wanted(function):
+        return function is not None and (function in per_function or any(a.search(function) for a in also_dump))
+
     for function, address, mnemonic, operands in disassemble(args.tool, args.file):
         if args.dump:
             if function != body_of:
-                if body_of in per_function:
+                if wanted(body_of):
                     dumped.append((body_of, body))
                 body, body_of = [], function
             body.append(f"  {address} {mnemonic} {operands}")
+        for symbol in args.xref:
+            if f"[{symbol}]" in operands:
+                print(f"  xref {symbol} {address} {mnemonic} {operands}   in {function}")
         total += 1
         kind = classify(mnemonic, operands)
         if kind:
@@ -118,7 +130,7 @@ def main():
             examples.setdefault((function, kind), f"{mnemonic} {operands}".strip())
 
     if args.dump:
-        if body_of in per_function:
+        if wanted(body_of):
             dumped.append((body_of, body))
         with open(args.dump, "w") as f:
             for function, lines in dumped:
