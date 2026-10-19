@@ -59,6 +59,7 @@ enum dxil_resource_type {
 
 enum dxil_part_fourcc {
    DXIL_RDEF = DXIL_FOURCC('R', 'D', 'E', 'F'),
+   DXBC_SHEX = DXIL_FOURCC('S', 'H', 'E', 'X'),
    DXIL_ISG1 = DXIL_FOURCC('I', 'S', 'G', '1'),
    DXIL_OSG1 = DXIL_FOURCC('O', 'S', 'G', '1'),
    DXIL_PSG1 = DXIL_FOURCC('P', 'S', 'G', '1'),
@@ -127,6 +128,10 @@ dxil_container_add_module(struct dxil_container *c,
 
 bool
 dxil_container_write(struct dxil_container *c, struct blob *blob);
+
+/* DXBC (SM 5.x) shader tokens instead of a DXIL module */
+bool
+dxil_container_add_shader_blob(struct dxil_container *c, const void *blob, uint32_t size);
 
 #ifdef __cplusplus
 }

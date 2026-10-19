@@ -356,6 +356,12 @@ dxil_container_add_module(struct dxil_container *c,
 }
 
 bool
+dxil_container_add_shader_blob(struct dxil_container *c, const void *blob, uint32_t size)
+{
+   return add_part(c, DXBC_SHEX, blob, size);
+}
+
+bool
 dxil_container_write(struct dxil_container *c, struct blob *blob)
 {
    assert(blob->size == 0);
