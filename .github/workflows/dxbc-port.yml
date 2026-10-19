@@ -154,13 +154,15 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq meson ninja-build glslang-tools spirv-cross >/dev/null
           git clone --quiet --recursive --depth 1 https://github.com/doitsujin/dxbc-spirv.git
           meson setup dxbc-spirv/build dxbc-spirv >/dev/null
-          ninja -C dxbc-spirv/build tools/dxbc_disasm
+          ninja -C dxbc-spirv/build
+          echo "DISASM=$(find dxbc-spirv/build -type f -name dxbc_disasm | head -1)" >> "$GITHUB_ENV"
       - name: Disassemble every blob with dxbc-spirv
         run: |
           shopt -s nullglob
+          test -x "$DISASM"
           ok=0; bad=0
           for f in results/results/asm/*.dxbc results/asm/*.dxbc; do
-            if dxbc-spirv/build/tools/dxbc_disasm "$f" > "$f.spv.asm" 2> "$f.spv.err"; then ok=$((ok+1)); else bad=$((bad+1)); echo "FAIL $f: $(head -c 300 "$f.spv.err")"; fi
+            if "$DISASM" "$f" > "$f.spv.asm" 2> "$f.spv.err"; then ok=$((ok+1)); else bad=$((bad+1)); echo "FAIL $f: $(head -c 300 "$f.spv.err")"; fi
           done
           echo "dxbc-spirv disassembled $ok blobs, $bad failed" | tee -a "$GITHUB_STEP_SUMMARY"
           test "$bad" -eq 0

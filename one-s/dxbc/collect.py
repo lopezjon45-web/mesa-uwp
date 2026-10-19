@@ -36,16 +36,18 @@ def run_pass(exe, out, scenes, ref, env_extra, dump, capture=False):
         if capture:
             (out / "capture" / scene).mkdir(parents=True, exist_ok=True)
             env["MESA_SHADER_CAPTURE_PATH"] = str((out / "capture" / scene).resolve())
+        # --expect-all only sets run.py's exit code; the status column is what counts here.
         cmd = [sys.executable, str(RUN_PY), "--exe", str(exe.resolve()), "--out", str(out.resolve()),
-               "--scene", scene, "--title", scene]
+               "--scene", scene, "--title", scene, "--expect-all"]
         if ref:
             cmd += ["--ref", str(ref.resolve())]
         else:
             cmd += ["--write-ref", str((out / "ref").resolve())]
         proc = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, errors="replace")
-        line = next((l for l in proc.stdout.splitlines() if l.startswith(scene)), "")
+        (out / f"{scene}.runpy.log").write_text(f"exit {proc.returncode}\n--- stdout\n{proc.stdout}--- stderr\n{proc.stderr}")
+        line = next((l for l in proc.stdout.splitlines() if l.startswith(scene + " ")), "")
         results[scene] = line.split()[1] if len(line.split()) > 1 else "no-output"
-        print(f"[{out.name}] {line or proc.stdout.strip()[-200:]}", flush=True)
+        print(f"[{out.name}] {line or (proc.stdout + proc.stderr).strip()[-200:]}", flush=True)
     return results
 
 
