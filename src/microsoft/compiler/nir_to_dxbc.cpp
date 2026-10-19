@@ -1853,14 +1853,16 @@ lower_bit_size_callback(const nir_instr *instr, void *data)
    return 0;
 }
 
-/* Merge adjacent loads up to one vec4: nir_lower_ubo_vec4 only splits a load
- * that straddles a single vec4 boundary, so a wider merge aliases its upper
- * channels onto the second vec4 (a mat4 came back as columns 0, 1, 1, 1). */
+/* Merge adjacent loads up to one vec4 of 32-bit channels: nir_lower_ubo_vec4
+ * only splits a load that straddles a single vec4 boundary, so a wider merge
+ * aliases its upper channels onto the second vec4 (a mat4 came back as
+ * columns 0, 1, 1, 1), and a merge into 64-bit lanes leaves
+ * unpack_64_2x32_split behind, which SM 5 cannot express. */
 static bool
 vectorize_filter(unsigned align_mul, unsigned align_offset, unsigned bit_size, unsigned num_components,
                  int64_t hole_size, nir_intrinsic_instr *low, nir_intrinsic_instr *high, void *data)
 {
-   return hole_size <= 0 && util_is_power_of_two_nonzero(num_components) && num_components <= 4;
+   return hole_size <= 0 && bit_size == 32 && util_is_power_of_two_nonzero(num_components) && num_components <= 4;
 }
 
 static void
