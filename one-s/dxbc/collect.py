@@ -78,7 +78,9 @@ def main():
 
     lines = ["## DXBC port: scene results", "", "| scene | DXIL | SM 5.1 vs DXIL | SM 5.0 vs DXIL |", "|---|---|---|---|"]
     for s in scenes:
-        lines.append(f"| {s} | {dxil.get(s)} | {sm51.get(s)} | {sm50.get(s)} |")
+        # The DXIL pass writes the references, so run.py reports it as no-ref when the scene rendered.
+        base = "rendered" if dxil.get(s) == "no-ref" else dxil.get(s)
+        lines.append(f"| {s} | {base} | {sm51.get(s)} | {sm50.get(s)} |")
     passing = [s for s in scenes if sm51.get(s) == "pass"]
     lines += ["", f"SM 5.1 scenes matching the DXIL image: {len(passing)}/{len(scenes)}"
               + (" (" + ", ".join(passing) + ")" if passing else ""), ""]
