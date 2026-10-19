@@ -12,6 +12,15 @@ on:
   push:
     branches: [dxbc-port]
   workflow_dispatch:
+    inputs:
+      scenes:
+        description: Comma-separated glprobe scenes to run instead of the default list.
+        type: string
+        default: ''
+      dxbc_debug:
+        description: DXBC_DEBUG value for the SM 5.x passes (verbose prints the NIR, trace each converted instruction).
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -102,7 +111,9 @@ jobs:
           GALLIUM_DRIVER: d3d12
           WGL_DISABLE_ERROR_DIALOGS: 1
         run: |
-          python one-s\dxbc\collect.py --exe run\glprobe.exe --out results --scenes $env:SCENES
+          $scenes = if ('${{ inputs.scenes }}') { '${{ inputs.scenes }}' } else { $env:SCENES }
+          if ('${{ inputs.dxbc_debug }}') { $env:DXBC_DEBUG = '${{ inputs.dxbc_debug }}' }
+          python one-s\dxbc\collect.py --exe run\glprobe.exe --out results --scenes $scenes
           exit $LASTEXITCODE
 
       - name: Check every dumped blob (D3DDisassemble, D3D11 FL 11_0)
