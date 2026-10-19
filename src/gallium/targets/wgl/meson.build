@@ -3,9 +3,24 @@
 
 gallium_wgl_link_args = []
 
+# The UWP GDI stubs at the end of gallium_wgl.def.in exist only in winsys/uwp, so a desktop build
+# exports everything before them.
+if with_uwp
+  wgl_def_in = 'gallium_wgl.def.in'
+else
+  wgl_def_in = custom_target(
+    'gallium_wgl_desktop.def.in',
+    input : 'gallium_wgl.def.in',
+    output : 'gallium_wgl_desktop.def.in',
+    command : [prog_python, '-c',
+               'import sys; open(sys.argv[2], "w").write(open(sys.argv[1]).read().split("; UWP GDI stub functions")[0])',
+               '@INPUT@', '@OUTPUT@'],
+  )
+endif
+
 wgl_def = custom_target(
   'gallium_wgl.def',
-  input: 'gallium_wgl.def.in',
+  input: wgl_def_in,
   output : 'gallium_wgl.def',
   command : gen_vs_module_defs_normal_command,
 )
