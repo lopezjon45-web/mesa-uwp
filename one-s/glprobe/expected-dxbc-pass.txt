@@ -1,0 +1,12 @@
+# Scenes the DXBC backend (D3D12_MAX_SHADER_MODEL=51) must draw like the DXIL path. One per line.
+triangle_basic
+tex2d
+geometry_shader
+float_bits
+varying_smooth
+varying_flat
+discard
+instancing
+mrt
+tex_cube
+tex_shadow
