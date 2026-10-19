@@ -3,7 +3,8 @@
 
   collect.py --exe glprobe.exe --out DIR --scenes a,b,c
 
-  DIR/dxil/      the DXIL path; its images become the references for the other two passes
+  DIR/dxil/      the DXIL path; its images become the references for the other two passes, and the
+                 GLSL of every program lands under DIR/dxil/capture/<scene>/ (MESA_SHADER_CAPTURE_PATH)
   DIR/sm51/      D3D12_MAX_SHADER_MODEL=51 (the One S), compared against DIR/dxil, every blob the
                  driver compiled dumped under DIR/sm51/blobs/<scene>/, compile times per shader
   DIR/sm50/      D3D12_MAX_SHADER_MODEL=50, blobs only (SM 5.0 is what D3D11 FL 11_0 accepts)
@@ -25,13 +26,16 @@ RUN_PY = HERE.parent / "glprobe" / "run.py"
 TIMING = re.compile(r"D3D12: compiled (\w+) (\w+) (\d+) bytes in ([0-9.]+) ms")
 
 
-def run_pass(exe, out, scenes, ref, env_extra, dump):
+def run_pass(exe, out, scenes, ref, env_extra, dump, capture=False):
     out.mkdir(parents=True, exist_ok=True)
-    env = {**os.environ, **env_extra}
     results = {}
     for scene in scenes:
+        env = {**os.environ, **env_extra}
         cwd = out / "blobs" / scene if dump else out
         cwd.mkdir(parents=True, exist_ok=True)
+        if capture:
+            (out / "capture" / scene).mkdir(parents=True, exist_ok=True)
+            env["MESA_SHADER_CAPTURE_PATH"] = str((out / "capture" / scene).resolve())
         cmd = [sys.executable, str(RUN_PY), "--exe", str(exe.resolve()), "--out", str(out.resolve()),
                "--scene", scene, "--title", scene]
         if ref:
@@ -64,7 +68,7 @@ def main():
     args = ap.parse_args()
     scenes = [s for s in args.scenes.split(",") if s]
 
-    dxil = run_pass(args.exe, args.out / "dxil", scenes, None, {"D3D12_DEBUG": "verbose"}, dump=False)
+    dxil = run_pass(args.exe, args.out / "dxil", scenes, None, {"D3D12_DEBUG": "verbose"}, dump=False, capture=True)
     sm51 = run_pass(args.exe, args.out / "sm51", scenes, args.out / "dxil" / "ref",
                     {"D3D12_MAX_SHADER_MODEL": "51", "D3D12_DEBUG": "dxil,verbose"}, dump=True)
     sm50 = run_pass(args.exe, args.out / "sm50", scenes, args.out / "dxil" / "ref",

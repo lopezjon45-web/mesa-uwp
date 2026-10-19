@@ -136,23 +136,26 @@ jobs:
             results-fxc.tsv
           if-no-files-found: ignore
 
-  disasm:
+  # Second structural check with dxbc-spirv (MIT), and the oracle's first half: the captured GLSL goes
+  # through glslang and SPIRV-Cross to SM 5.1 HLSL for the fxc job.
+  linux:
     needs: windows
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: dxbc-results
           path: results
-      - name: Build dxbc-spirv's disassembler (MIT)
+      - name: Tools (meson, glslang, SPIRV-Cross) and dxbc-spirv's disassembler
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq meson ninja-build >/dev/null
+          sudo apt-get update -qq && sudo apt-get install -y -qq meson ninja-build glslang-tools spirv-cross >/dev/null
           git clone --quiet --recursive --depth 1 https://github.com/doitsujin/dxbc-spirv.git
           meson setup dxbc-spirv/build dxbc-spirv >/dev/null
           ninja -C dxbc-spirv/build tools/dxbc_disasm
-      - name: Disassemble every blob
+      - name: Disassemble every blob with dxbc-spirv
         run: |
           shopt -s nullglob
           ok=0; bad=0
@@ -161,9 +164,46 @@ jobs:
           done
           echo "dxbc-spirv disassembled $ok blobs, $bad failed" | tee -a "$GITHUB_STEP_SUMMARY"
           test "$bad" -eq 0
+      - name: Oracle, GLSL to SM 5.1 HLSL
+        if: always()
+        run: |
+          cap=$(find results -type d -name capture | head -1)
+          if [ -z "$cap" ]; then echo "no captured GLSL" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; fi
+          python3 one-s/dxbc/oracle_convert.py --capture "$cap" --out oracle-hlsl
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: dxbc-spirv-disasm
           path: results/**/*.spv.*
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: oracle-hlsl
+          path: oracle-hlsl
+          if-no-files-found: ignore
+
+  fxc:
+    needs: linux
+    if: always()
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@v4
+        with:
+          name: oracle-hlsl
+          path: oracle-hlsl
+      - name: Oracle, fxc on the converted HLSL
+        shell: pwsh
+        run: |
+          python one-s\dxbc\oracle_fxc.py --hlsl oracle-hlsl --out oracle-fxc
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: oracle-fxc
+          path: oracle-fxc
           if-no-files-found: ignore
