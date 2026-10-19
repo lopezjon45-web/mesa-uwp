@@ -105,7 +105,7 @@ def compare(out_png, ref_png, diff_png):
 
 
 def classify_exit(code, stdout, stderr):
-    lines = [l for l in (stderr + stdout).splitlines() if l.strip()]
+    lines = [l for l in stderr.splitlines() if l.strip()] or [l for l in stdout.splitlines() if l.strip()]
     first = next((l for l in lines if l.startswith(("CRASH", "ABORT"))), lines[-1] if lines else "")
     if code == 4:
         return "probe", first
@@ -156,6 +156,7 @@ def main():
     ap.add_argument("--write-ref", type=Path, help="copy every image glprobe wrote into this directory")
     ap.add_argument("--scene", action="append", help="run only these scenes")
     args = ap.parse_args()
+    args.exe = args.exe.resolve()
 
     listing = subprocess.run([str(args.exe), "--list"], capture_output=True, text=True, check=True).stdout
     scenes = {}
