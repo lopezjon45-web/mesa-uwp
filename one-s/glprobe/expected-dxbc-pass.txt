@@ -3,12 +3,16 @@ clear
 triangle_basic
 alu_float
 alu_int
+int_div
+bitfield_ops
 float_bits
 precise_fma
 varying_smooth
 varying_flat
 varying_noperspective
 provoking_vertex
+uniforms
+ubo_binding
 tex2d
 tex_mipmap_lod
 tex_grad
@@ -46,6 +50,7 @@ draw_elements
 multidraw_fan
 primitive_restart
 transform_feedback
+clip_distance
 derivatives
 geometry_shader
 gs_lines_adjacency
