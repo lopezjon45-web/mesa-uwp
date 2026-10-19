@@ -1751,6 +1751,11 @@ d3d12_init_screen(struct d3d12_screen *screen, IUnknown *adapter)
             break;
          }
       }
+      /* D3D12_MAX_SHADER_MODEL=51 makes any adapter report what the Xbox One S reports. */
+      unsigned sm_cap = (unsigned)debug_get_num_option("D3D12_MAX_SHADER_MODEL", 0);
+      if (sm_cap)
+         screen->max_shader_model = MIN2(screen->max_shader_model,
+                                         (enum dxil_shader_model)(((sm_cap / 10) << 16) | (sm_cap % 10)));
    }
 #endif // HAVE_GALLIUM_D3D12_GRAPHICS
 
