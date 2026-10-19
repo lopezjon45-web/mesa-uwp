@@ -183,6 +183,17 @@ nir_src_as_const_value_or_register(ntd_context *ctx, nir_src src, uint32_t num_w
    if (deref)
       num_components = 4;
 
+   // A selected scalar (a channel a mov pulled out of a vector) replicates: any
+   // swizzle of it is that channel. SwizzleComponent() would read the stale
+   // m_Swizzle table instead and hand back .x.
+   if (ret.m_ComponentSelection == D3D10_SB_OPERAND_4_COMPONENT_SELECT_1_MODE) {
+      if (num_components != 1) {
+         D3D10_SB_4_COMPONENT_NAME c = ret.m_ComponentName;
+         ret.SetSwizzle(c, c, c, c);
+      }
+      return ret;
+   }
+
    if (num_components == 1) {
       // Already a single component
       if (ret.m_NumComponents == D3D10_SB_OPERAND_1_COMPONENT) {
