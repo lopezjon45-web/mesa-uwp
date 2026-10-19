@@ -13,11 +13,6 @@ name: one-s
 on:
   push:
   workflow_dispatch:
-    inputs:
-      write_refs:
-        description: Upload the DXIL images as new references instead of gating on the committed ones.
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -210,14 +205,9 @@ jobs:
         env:
           GALLIUM_DRIVER: d3d12
           WGL_DISABLE_ERROR_DIALOGS: 1
+        # results/new-ref gets every image whose scene passed its probes: the candidates for a new or changed reference.
         run: |
-          if ('${{ inputs.write_refs }}' -eq 'true') {
-            New-Item -ItemType File -Force "$env:RUNNER_TEMP\none.txt" | Out-Null
-            python one-s/glprobe/run.py --exe run\glprobe.exe --out results\dxil --title "DXIL path (writing references)" `
-              --expect "$env:RUNNER_TEMP\none.txt" --write-ref results\new-ref
-          } else {
-            python one-s/glprobe/run.py --exe run\glprobe.exe --out results\dxil --title "DXIL path" --expect-all
-          }
+          python one-s/glprobe/run.py --exe run\glprobe.exe --out results\dxil --title "DXIL path" --expect-all --write-ref results\new-ref
           exit $LASTEXITCODE
 
       - name: glprobe, shader model capped at 5.1 (ratchet)

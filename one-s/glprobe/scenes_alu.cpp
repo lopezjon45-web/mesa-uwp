@@ -171,9 +171,9 @@ void scene_int_div(SceneCtx &ctx)
                      {"i.x / i.w", u32(-3)},
                      {"i.y / i.w", 3},
                      {"i.x % i.z", 2},
-                     {"i.y % i.z", u32(-2)},
-                     {"i.x % i.w", 2},
-                     {"i.y % i.w", u32(-2)},
+                     {"i.x % (i.z + 1)", 5},
+                     {"(i.x * 100) % 7", 6},
+                     {"i.z % i.x", 5},
                      {"i.y / i.y", 1},
                      {"int(u.z) / i.z", u32(-3)},
                      {"u.x / u.y", 3},
@@ -352,6 +352,30 @@ void main() {
       uint32_t acc = (uint32_t)loops_reference(id, 9, &k, &w);
       probe(ctx, (id % 4) * 16 + 8, (id / 4) * 16 + 8,
             {uint8_t(acc), uint8_t(acc >> 8), uint8_t(k), uint8_t(w * 16)});
+   }
+}
+
+// The do-while from loops_branches on its own: one cell per id, w = smallest w >= 1 with w*w >= id*10.
+void scene_loop_do_while(SceneCtx &ctx)
+{
+   GLuint p = compile_program(VS_QUAD, R"(#version 400 core
+uniform int n;
+layout(location = 0) out vec4 o;
+void main() {
+   int id = (int(gl_FragCoord.y) / 16) * 4 + int(gl_FragCoord.x) / 16 + n;
+   int w = 0;
+   do { w++; } while (w * w < id * 10);
+   o = vec4(float(w * 16) / 255.0, 0.0, 0.0, 1.0);
+}
+)");
+   glUniform1i(uloc(p, "n"), 0);
+   fullscreen_quad();
+   for (int id = 0; id < 16; id++) {
+      int w = 0;
+      do {
+         w++;
+      } while (w * w < id * 10);
+      probe(ctx, (id % 4) * 16 + 8, (id / 4) * 16 + 8, {uint8_t(w * 16), 0, 0, 255});
    }
 }
 
