@@ -1853,12 +1853,14 @@ lower_bit_size_callback(const nir_instr *instr, void *data)
    return 0;
 }
 
-/* Same rule as nir_to_dxil: merge adjacent loads into a power-of-two vector. */
+/* Merge adjacent loads up to one vec4: nir_lower_ubo_vec4 only splits a load
+ * that straddles a single vec4 boundary, so a wider merge aliases its upper
+ * channels onto the second vec4 (a mat4 came back as columns 0, 1, 1, 1). */
 static bool
 vectorize_filter(unsigned align_mul, unsigned align_offset, unsigned bit_size, unsigned num_components,
                  int64_t hole_size, nir_intrinsic_instr *low, nir_intrinsic_instr *high, void *data)
 {
-   return hole_size <= 0 && util_is_power_of_two_nonzero(num_components);
+   return hole_size <= 0 && util_is_power_of_two_nonzero(num_components) && num_components <= 4;
 }
 
 static void
