@@ -47,7 +47,7 @@ endif
 if with_uwp
   subdir('winsys/uwp')
 else
-  libgdi_uwp = declare_dependency()
+  libgdi_uwp = []
 endif  
 subdir('winsys/sw/wrapper')
 if with_platform_haiku
