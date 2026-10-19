@@ -1,3 +1,4 @@
 # Scenes the normal DXIL path on WARP draws wrong, so they have no reference image. Each passes on its
 # CPU-computed probes alone. Format: scene  # what the DXIL path gets wrong, and the run that showed it.
 loops_branches  # do-while runs one extra iteration: every cell's w is one too high (run 39335623151)
+loop_do_while  # the same do-while alone: every cell's w is one too high (run 39336318243)
