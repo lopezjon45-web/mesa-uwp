@@ -1301,7 +1301,7 @@ public:
         m_NumOperands = 0;
         m_ExtendedOpCodeCount = 0;   
     }
-    CInstruction(D3D10_SB_OPCODE_TYPE OpCode, COperandBase& Operand0,
+    CInstruction(D3D10_SB_OPCODE_TYPE OpCode, const COperandBase& Operand0,
                  D3D10_SB_INSTRUCTION_TEST_BOOLEAN Test = D3D10_SB_INSTRUCTION_TEST_ZERO)
     {
         Clear();
@@ -1311,7 +1311,7 @@ public:
         m_Test = Test;
         m_Operands[0] = Operand0;  
     }
-    CInstruction(D3D10_SB_OPCODE_TYPE OpCode, COperandBase& Operand0, COperandBase& Operand1)
+    CInstruction(D3D10_SB_OPCODE_TYPE OpCode, const COperandBase& Operand0, const COperandBase& Operand1)
     {
         Clear();
         m_OpCode = OpCode;
@@ -1320,7 +1320,7 @@ public:
         m_Operands[0] = Operand0;
         m_Operands[1] = Operand1;   
     }
-    CInstruction(D3D10_SB_OPCODE_TYPE OpCode, COperandBase& Operand0, COperandBase& Operand1, COperandBase& Operand2)
+    CInstruction(D3D10_SB_OPCODE_TYPE OpCode, const COperandBase& Operand0, const COperandBase& Operand1, const COperandBase& Operand2)
     {
         Clear();
         m_OpCode = OpCode;
@@ -1331,8 +1331,8 @@ public:
         m_Operands[2] = Operand2;
       
     }
-    CInstruction(D3D10_SB_OPCODE_TYPE OpCode, COperandBase& Operand0, COperandBase& Operand1,
-                 COperandBase& Operand2, COperandBase& Operand3)
+    CInstruction(D3D10_SB_OPCODE_TYPE OpCode, const COperandBase& Operand0, const COperandBase& Operand1,
+                 const COperandBase& Operand2, const COperandBase& Operand3)
     {
         Clear();
         m_OpCode = OpCode;
@@ -1344,8 +1344,8 @@ public:
         m_Operands[3] = Operand3;
         memset(m_TexelOffset, 0, sizeof(m_TexelOffset));
     }
-    CInstruction(D3D10_SB_OPCODE_TYPE OpCode, COperandBase& Operand0, COperandBase& Operand1,
-       COperandBase& Operand2, COperandBase& Operand3, COperandBase& Operand4)
+    CInstruction(D3D10_SB_OPCODE_TYPE OpCode, const COperandBase& Operand0, const COperandBase& Operand1,
+       const COperandBase& Operand2, const COperandBase& Operand3, const COperandBase& Operand4)
     {
        Clear();
        m_OpCode = OpCode;
@@ -1357,8 +1357,8 @@ public:
        m_Operands[3] = Operand3;
        m_Operands[4] = Operand4;
     }
-    CInstruction(D3D10_SB_OPCODE_TYPE OpCode, COperandBase& Operand0, COperandBase& Operand1,
-       COperandBase& Operand2, COperandBase& Operand3, COperandBase& Operand4, COperandBase& Operand5)
+    CInstruction(D3D10_SB_OPCODE_TYPE OpCode, const COperandBase& Operand0, const COperandBase& Operand1,
+       const COperandBase& Operand2, const COperandBase& Operand3, const COperandBase& Operand4, const COperandBase& Operand5)
     {
        Clear();
        m_OpCode = OpCode;

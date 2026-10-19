@@ -29,6 +29,8 @@ extern "C" {
 #endif
 
 enum dxil_shader_model {
+   SHADER_MODEL_5_0 = 0x50000,
+   SHADER_MODEL_5_1,
    SHADER_MODEL_6_0 = 0x60000,
    SHADER_MODEL_6_1,
    SHADER_MODEL_6_2,

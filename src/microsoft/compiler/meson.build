@@ -15,6 +15,8 @@ files_libdxil_compiler = files(
   'dxil_signature.c',
   'dxil_nir_tess.c',
   'nir_to_dxil.c',
+  'nir_to_dxbc.cpp',
+  'ShaderBinary/src/ShaderBinary.cpp',
 )
 
 if host_machine.system() == 'windows'
@@ -35,8 +37,8 @@ dxil_nir_algebraic_c = custom_target(
 libdxil_compiler = static_library(
   'dxil_compiler',
   [files_libdxil_compiler, dxil_nir_algebraic_c, sha1_h],
-  include_directories : [inc_include, inc_src],
-  dependencies: [idep_nir_headers, dep_valgrind],
+  include_directories : [inc_include, inc_src, include_directories('ShaderBinary/include')],
+  dependencies: [idep_nir_headers, dep_valgrind, dep_dxheaders],
   gnu_symbol_visibility : 'hidden',
 )
 

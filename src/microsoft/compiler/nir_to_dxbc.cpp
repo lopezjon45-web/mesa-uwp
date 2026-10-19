@@ -677,25 +677,6 @@ emit_alu(struct ntd_context *ctx, nir_alu_instr *alu)
       return true;
    }
 
-   case nir_op_fddx:
-      store_instruction(ctx, &alu->def, get_intr_1_args(ctx, D3D10_SB_OPCODE_DERIV_RTX, alu));
-      return true;
-   case nir_op_fddy:
-      store_instruction(ctx, &alu->def, get_intr_1_args(ctx, D3D10_SB_OPCODE_DERIV_RTY, alu));
-      return true;
-   case nir_op_fddx_fine:
-      store_instruction(ctx, &alu->def, get_intr_1_args(ctx, D3D11_SB_OPCODE_DERIV_RTX_FINE, alu));
-      return true;
-   case nir_op_fddy_fine:
-      store_instruction(ctx, &alu->def, get_intr_1_args(ctx, D3D11_SB_OPCODE_DERIV_RTY_FINE, alu));
-      return true;
-   case nir_op_fddx_coarse:
-      store_instruction(ctx, &alu->def, get_intr_1_args(ctx, D3D11_SB_OPCODE_DERIV_RTX_COARSE, alu));
-      return true;
-   case nir_op_fddy_coarse:
-      store_instruction(ctx, &alu->def, get_intr_1_args(ctx, D3D11_SB_OPCODE_DERIV_RTY_COARSE, alu));
-      return true;
-
    case nir_op_fdot4:
       store_instruction(ctx, &alu->def, get_intr_dot_product(ctx, D3D10_SB_OPCODE_DP4, alu));
       return true;
@@ -776,19 +757,20 @@ emit_alu(struct ntd_context *ctx, nir_alu_instr *alu)
       ctx->mod.ssa_operands[alu->def.index].operand = res;
       return true;
    }
-   case nir_op_unpack_half_2x16_split_x:
-   case nir_op_unpack_half_2x16_split_y: {
-      COperandBase a = get_alu_src_as_const_value_or_register(ctx, alu, ncomp, 0);
+   case nir_op_unpack_half_2x16: {
+      /* Split the halves into t.xy so one per-component f16tof32 converts both. */
+      COperandBase a = get_alu_src_as_const_value_or_register(ctx, alu, 1, 0);
       COperand4 t = new_temp(ctx), res = new_temp(ctx);
-      if (alu->op == nir_op_unpack_half_2x16_split_y) {
-         COperand sixteen(16u);
-         ctx->mod.instructions.push_back(CInstruction(D3D10_SB_OPCODE_USHR, temp_dst(t, mask), a, sixteen));
-         a = t;
-      }
-      ctx->mod.instructions.push_back(CInstruction(D3D11_SB_OPCODE_F16TOF32, temp_dst(res, mask), a));
+      COperand low16(0xffffu), sixteen(16u);
+      ctx->mod.instructions.push_back(CInstruction(D3D10_SB_OPCODE_AND, temp_dst(t, 0x1), a, low16));
+      ctx->mod.instructions.push_back(CInstruction(D3D10_SB_OPCODE_USHR, temp_dst(t, 0x2), a, sixteen));
+      ctx->mod.instructions.push_back(CInstruction(D3D11_SB_OPCODE_F16TOF32, temp_dst(res, 0x3), t));
       ctx->mod.ssa_operands[alu->def.index].operand = res;
       return true;
    }
+   case nir_op_unpack_half_x_dxil:
+      store_instruction(ctx, &alu->def, get_intr_1_args(ctx, D3D11_SB_OPCODE_F16TOF32, alu));
+      return true;
 
    default:
       fail(ctx, "unsupported ALU op", &alu->instr);
@@ -1043,6 +1025,15 @@ emit_store_reg(ntd_context *ctx, nir_intrinsic_instr *intr)
 }
 
 static bool
+emit_derivative(ntd_context *ctx, nir_intrinsic_instr *intr, D3D10_SB_OPCODE_TYPE opcode)
+{
+   COperandBase dst = def_as_register(ctx, &intr->def, full_mask(&intr->def));
+   COperandBase src = nir_src_as_const_value_or_register(ctx, intr->src[0], intr->def.num_components, nullptr);
+   store_instruction(ctx, &intr->def, CInstruction(opcode, dst, src));
+   return true;
+}
+
+static bool
 emit_intrinsic(struct ntd_context *ctx, nir_intrinsic_instr *intr)
 {
    switch (intr->intrinsic) {
@@ -1057,6 +1048,19 @@ emit_intrinsic(struct ntd_context *ctx, nir_intrinsic_instr *intr)
    case nir_intrinsic_load_barycentric_centroid:
    case nir_intrinsic_load_barycentric_sample:
       return true;
+
+   case nir_intrinsic_ddx:
+      return emit_derivative(ctx, intr, D3D10_SB_OPCODE_DERIV_RTX);
+   case nir_intrinsic_ddy:
+      return emit_derivative(ctx, intr, D3D10_SB_OPCODE_DERIV_RTY);
+   case nir_intrinsic_ddx_fine:
+      return emit_derivative(ctx, intr, D3D11_SB_OPCODE_DERIV_RTX_FINE);
+   case nir_intrinsic_ddy_fine:
+      return emit_derivative(ctx, intr, D3D11_SB_OPCODE_DERIV_RTY_FINE);
+   case nir_intrinsic_ddx_coarse:
+      return emit_derivative(ctx, intr, D3D11_SB_OPCODE_DERIV_RTX_COARSE);
+   case nir_intrinsic_ddy_coarse:
+      return emit_derivative(ctx, intr, D3D11_SB_OPCODE_DERIV_RTY_COARSE);
 
    case nir_intrinsic_decl_reg:
       return emit_decl_reg(ctx, intr);
@@ -1610,7 +1614,7 @@ emit_dcl(struct ntd_context *ctx)
                ctx->mod.shader.EmitPSInputDecl(elem.reg, write_mask,
                   dxil_to_dxbc_interpolation_mode((dxil_interpolation_mode)psv_input.interpolation_mode));
             } else if (gs) {
-               ctx->mod.shader.EmitGSInputDecl(elem.reg, vertices, write_mask);
+               ctx->mod.shader.EmitInputDecl2D(D3D10_SB_OPERAND_TYPE_INPUT, vertices, elem.reg, write_mask);
             } else {
                ctx->mod.shader.EmitInputDecl(D3D10_SB_OPERAND_TYPE_INPUT, elem.reg, write_mask);
             }
@@ -1620,7 +1624,7 @@ emit_dcl(struct ntd_context *ctx)
                ctx->mod.shader.EmitPSInputSystemInterpretedValueDecl(elem.reg, write_mask,
                   D3D10_SB_INTERPOLATION_LINEAR_NOPERSPECTIVE, D3D10_SB_NAME_POSITION);
             } else if (gs) {
-               ctx->mod.shader.EmitGSInputSystemInterpretedValueDecl(elem.reg, vertices, write_mask, D3D10_SB_NAME_POSITION);
+               ctx->mod.shader.EmitInputSystemInterpretedValueDecl2D(vertices, elem.reg, write_mask, D3D10_SB_NAME_POSITION);
             } else {
                ctx->mod.shader.EmitInputSystemInterpretedValueDecl(D3D10_SB_OPERAND_TYPE_INPUT, elem.reg, write_mask, D3D10_SB_NAME_POSITION);
             }
@@ -1789,7 +1793,7 @@ optimize_nir(struct nir_shader *s)
       NIR_PASS(progress, s, nir_lower_bit_size, (nir_lower_bit_size_callback)lower_bit_size_callback_wrap, NULL);
       NIR_PASS(progress, s, nir_opt_remove_phis);
       NIR_PASS(progress, s, nir_opt_dce);
-      NIR_PASS(progress, s, nir_opt_if, nir_opt_if_optimize_phi_true_false | nir_opt_if_avoid_64bit_phis);
+      NIR_PASS(progress, s, nir_opt_if, (nir_opt_if_options)(nir_opt_if_optimize_phi_true_false | nir_opt_if_avoid_64bit_phis));
       NIR_PASS(progress, s, nir_opt_dead_cf);
       NIR_PASS(progress, s, nir_opt_cse);
       nir_opt_peephole_select_options peephole_select_options = {};

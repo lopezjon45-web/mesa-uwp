@@ -27,6 +27,7 @@
 #include "d3d12_screen.h"
 #include "d3d12_nir_passes.h"
 #include "nir_to_dxil.h"
+#include "nir_to_dxbc.h"
 #include "dxil_nir.h"
 #include "dxil_nir_lower_int_cubemaps.h"
 
@@ -42,6 +43,7 @@
 #include "util/u_prim.h"
 #include "util/u_simple_shaders.h"
 #include "util/u_dl.h"
+#include "util/os_time.h"
 
 #include <dxguids/dxguids.h>
 
@@ -78,6 +80,7 @@ compile_nir(struct d3d12_context *ctx, struct d3d12_shader_selector *sel,
             struct d3d12_shader_key *key, struct nir_shader *nir)
 {
    struct d3d12_screen *screen = d3d12_screen(ctx->base.screen);
+   bool dxbc = screen->shader_backend == D3D12_SHADER_BACKEND_DXBC;
    struct d3d12_shader *shader = rzalloc(sel, d3d12_shader);
    shader->key = *key;
 
@@ -124,7 +127,7 @@ compile_nir(struct d3d12_context *ctx, struct d3d12_shader_selector *sel,
 
    struct nir_to_dxil_options opts = {};
    opts.interpolate_at_vertex = screen->have_load_at_vertex;
-   opts.lower_int16 = !screen->opts4.Native16BitShaderOpsSupported;
+   opts.lower_int16 = dxbc || !screen->opts4.Native16BitShaderOpsSupported;
    opts.last_ubo_is_not_arrayed = shader->num_state_vars > 0;
    if (key->stage == MESA_SHADER_FRAGMENT)
       opts.provoking_vertex = key->fs.provoking_vertex;
@@ -137,7 +140,14 @@ compile_nir(struct d3d12_context *ctx, struct d3d12_shader_selector *sel,
 #endif
 
    struct blob tmp;
-   if (!nir_to_dxil(nir, &opts, NULL, &tmp)) {
+   int64_t compile_start = os_time_get_nano();
+   if (dxbc) {
+      char err[1024];
+      if (!nir_to_dxbc(nir, &opts, &tmp, err, sizeof(err))) {
+         debug_printf("D3D12: nir_to_dxbc failed: %s\n", err);
+         return NULL;
+      }
+   } else if (!nir_to_dxil(nir, &opts, NULL, &tmp)) {
       debug_printf("D3D12: nir_to_dxil failed\n");
       return NULL;
    }
@@ -172,7 +182,7 @@ compile_nir(struct d3d12_context *ctx, struct d3d12_shader_selector *sel,
    }
 
 #ifdef _WIN32
-   if (ctx->dxil_validator) {
+   if (ctx->dxil_validator && !dxbc) {
       if (!(d3d12_debug & D3D12_DEBUG_EXPERIMENTAL)) {
          char *err;
          if (!dxil_validate_module(ctx->dxil_validator, tmp.data,
@@ -200,6 +210,11 @@ compile_nir(struct d3d12_context *ctx, struct d3d12_shader_selector *sel,
 #endif
 
    blob_finish_get_buffer(&tmp, &shader->bytecode, &shader->bytecode_length);
+
+   if (d3d12_debug & D3D12_DEBUG_VERBOSE)
+      fprintf(stderr, "D3D12: compiled %s %s %zu bytes in %.3f ms\n",
+              _mesa_shader_stage_to_string(nir->info.stage), dxbc ? "dxbc" : "dxil",
+              shader->bytecode_length, (os_time_get_nano() - compile_start) / 1e6);
 
    if (d3d12_debug & D3D12_DEBUG_DXIL) {
       char buf[256];
