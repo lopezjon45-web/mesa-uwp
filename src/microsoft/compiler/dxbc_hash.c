@@ -47,6 +47,17 @@ rol(uint32_t x, unsigned n)
    return (x << n) | (x >> (32 - n));
 }
 
+/* Straight-line stores: a loop over shift amounts auto-vectorizes to AVX2
+ * variable shifts on MSVC, which the One S ISA gate refuses. */
+static void
+put_le32(uint8_t *p, uint32_t v)
+{
+   p[0] = (uint8_t)v;
+   p[1] = (uint8_t)(v >> 8);
+   p[2] = (uint8_t)(v >> 16);
+   p[3] = (uint8_t)(v >> 24);
+}
+
 static void
 md5_block(uint32_t h[4], const uint8_t *p)
 {
@@ -114,10 +125,8 @@ dxbc_hash(const void *container, size_t size, uint8_t digest[16])
    uint32_t a_num = (uint32_t)size * 8u;
    uint32_t b_num = (a_num >> 2) | 1u;
    uint8_t a[4], b[4];
-   for (unsigned i = 0; i < 4; i++) {
-      a[i] = (a_num >> (8 * i)) & 0xff;
-      b[i] = (b_num >> (8 * i)) & 0xff;
-   }
+   put_le32(a, a_num);
+   put_le32(b, b_num);
 
    size_t remainder = size % 64;
    size_t padding = 64 - remainder;
@@ -139,9 +148,10 @@ dxbc_hash(const void *container, size_t size, uint8_t digest[16])
       md5_update(&m, b, 4);
    }
 
-   for (unsigned i = 0; i < 4; i++)
-      for (unsigned j = 0; j < 4; j++)
-         digest[4 * i + j] = (m.h[i] >> (8 * j)) & 0xff;
+   put_le32(digest, m.h[0]);
+   put_le32(digest + 4, m.h[1]);
+   put_le32(digest + 8, m.h[2]);
+   put_le32(digest + 12, m.h[3]);
 }
 
 void
