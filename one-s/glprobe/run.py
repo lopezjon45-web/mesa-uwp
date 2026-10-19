@@ -5,8 +5,10 @@
     run.py --exe glprobe.exe --out DIR --expect expected.txt        only the listed scenes must pass (ratchet)
     run.py --exe glprobe.exe --out DIR --write-ref ref/             also copy each rendered image into ref/
 
-A scene passes when glprobe exits 0, GL_RENDERER contains --renderer, and every channel of every pixel is
-within TOLERANCE of the reference. Each scene runs in its own process so a driver crash fails only that
+A scene passes when glprobe exits 0 (its CPU-computed probe pixels match), GL_RENDERER contains --renderer,
+and every channel of every pixel is within TOLERANCE of the reference. A scene listed in
+dxil-known-failures.txt has no reference, because the DXIL path on WARP draws it wrong; it passes on its
+probes alone. With --expect-all such a scene must still fail, so the list cannot go stale. Each scene runs in its own process so a driver crash fails only that
 scene. The per-scene table is printed (and appended to $GITHUB_STEP_SUMMARY) whatever the gate decides.
 """
 import argparse
@@ -106,9 +108,11 @@ def compare(out_png, ref_png, diff_png):
 
 def classify_exit(code, stdout, stderr):
     lines = [l for l in stderr.splitlines() if l.strip()] or [l for l in stdout.splitlines() if l.strip()]
-    first = next((l for l in lines if l.startswith(("CRASH", "ABORT"))), lines[-1] if lines else "")
+    first = next((l for l in lines if l.startswith(("CRASH", "ABORT", "Assertion failed"))), lines[-1] if lines else "")
     if code == 4:
         return "probe", first
+    if first.startswith("Assertion failed"):
+        return "abort", first
     if code in (1, 2, 3):
         return "error", f"exit {code}: {first}"
     if code == 134:
@@ -116,7 +120,7 @@ def classify_exit(code, stdout, stderr):
     return "crash", f"exit 0x{code & 0xffffffff:08X}: {first}"
 
 
-def run_scene(exe, scene, out, ref_dir, renderer, env):
+def run_scene(exe, scene, out, ref_dir, renderer, env, known_failure):
     log = out / f"{scene}.log"
     try:
         proc = subprocess.run([str(exe), "--scene", scene, "--out", str(out)], capture_output=True, text=True,
@@ -133,6 +137,8 @@ def run_scene(exe, scene, out, ref_dir, renderer, env):
         status, detail = classify_exit(proc.returncode, proc.stdout, proc.stderr)
         return Result(scene, status, detail)
     ref = ref_dir / f"{scene}.png"
+    if known_failure is not None and not ref.exists():
+        return Result(scene, "pass", f"probes only: {known_failure}")
     if not ref.exists():
         return Result(scene, "no-ref", f"{ref} missing")
     r = compare(out / f"{scene}.png", ref, out / "diff" / f"{scene}.png")
@@ -141,6 +147,16 @@ def run_scene(exe, scene, out, ref_dir, renderer, env):
 
 def read_list(path):
     return [l.split("#")[0].strip() for l in path.read_text().splitlines() if l.split("#")[0].strip()]
+
+
+def read_reasons(path):
+    """scene  # reason, one per line."""
+    reasons = {}
+    for line in path.read_text().splitlines():
+        scene, _, reason = line.partition("#")
+        if scene.strip():
+            reasons[scene.strip()] = reason.strip()
+    return reasons
 
 
 def main():
@@ -155,6 +171,7 @@ def main():
     gate.add_argument("--expect", type=Path, help="fail unless every scene listed in this file passes")
     ap.add_argument("--write-ref", type=Path, help="copy every image glprobe wrote into this directory")
     ap.add_argument("--scene", action="append", help="run only these scenes")
+    ap.add_argument("--known-failures", type=Path, default=HERE / "dxil-known-failures.txt")
     args = ap.parse_args()
     args.exe = args.exe.resolve()
 
@@ -164,16 +181,18 @@ def main():
         if line.strip():
             name, _, feature = line.partition("\t")
             scenes[name] = feature
-    expected = set(scenes) if args.expect_all else set(read_list(args.expect))
-    unknown = sorted(expected - set(scenes))
-    if unknown:
-        sys.exit(f"{args.expect}: no such scenes: {', '.join(unknown)}")
+    known = read_reasons(args.known_failures)
+    expected = set(scenes) - set(known) if args.expect_all else set(read_list(args.expect))
+    for path, names in ((args.expect, expected), (args.known_failures, set(known))):
+        unknown = sorted(names - set(scenes))
+        if unknown:
+            sys.exit(f"{path}: no such scenes: {', '.join(unknown)}")
 
     (args.out / "diff").mkdir(parents=True, exist_ok=True)
     env = dict(os.environ)
     results = []
     for scene in (args.scene or scenes):
-        r = run_scene(args.exe, scene, args.out, args.ref, args.renderer, env)
+        r = run_scene(args.exe, scene, args.out, args.ref, args.renderer, env, known.get(scene))
         results.append(r)
         print(f"{scene:28} {r.status:14} {r.detail}", flush=True)
         if args.write_ref and (args.out / f"{scene}.png").exists() and r.status in ("pass", "mismatch", "no-ref"):
@@ -181,10 +200,11 @@ def main():
             shutil.copyfile(args.out / f"{scene}.png", args.write_ref / f"{scene}.png")
 
     failing = [r for r in results if r.scene in expected and not r.passed]
+    stale = [r.scene for r in results if args.expect_all and r.scene in known and r.passed]
     rows = [f"## {args.title}", "", f"{sum(r.passed for r in results)}/{len(results)} pass, "
             f"{len(failing)} required scene(s) failing", "", "| scene | gate | status | detail |", "|---|---|---|---|"]
     for r in results:
-        gate_col = ("REQUIRED" if r.scene in expected else "")
+        gate_col = "REQUIRED" if r.scene in expected else "known DXIL failure" if r.scene in known else ""
         rows.append(f"| {r.scene} | {gate_col} | {r.status} | {r.detail.replace('|', '/')} |")
     table = "\n".join(rows) + "\n"
     print("\n" + table)
@@ -195,6 +215,9 @@ def main():
             f.write(table + "\n")
     if failing:
         print("required scenes failing: " + ", ".join(r.scene for r in failing))
+    if stale:
+        print(f"listed in {args.known_failures.name} but passing; remove them: " + ", ".join(stale))
+    if failing or stale:
         return 1
     return 0
 

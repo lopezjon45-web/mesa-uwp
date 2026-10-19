@@ -13,11 +13,6 @@ name: one-s
 on:
   push:
   workflow_dispatch:
-    inputs:
-      write_refs:
-        description: Upload the DXIL images as new references instead of gating on the committed ones.
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -110,7 +105,8 @@ jobs:
             '--allow', '^exec_instruction$'
             # MSVC STL vector algorithm: the AVX2 block is entered only after test __isa_enabled,20h (the AVX2 bit).
             '--allow', '^.anonymous namespace.::__std_find_last_trivial_impl<.anonymous namespace.::_Find_traits_2,unsigned short>$'
-            # CRT: the AVX2 loop runs only when _Avx2WmemEnabled is nonzero; the xref lines below show every write.
+            # CRT: the AVX2 loop runs only when _Avx2WmemEnabled is nonzero. In run 39336919101 the flag sits in the
+            # zero-filled tail of .data (initial value 0) and the --xref lines show no instruction that writes it.
             '--allow', '^wmemcmp$'
           )
           $fail = 0
@@ -160,8 +156,8 @@ jobs:
         with:
           arch: x64
 
-      # Keyed on everything that goes into the Mesa build, so a change under one-s/glprobe/ reuses the DLLs. Saved
-      # right after the build, not at the end of the job, so a failing glprobe step still keeps it.
+      # Keyed on the Mesa sources (bump the version when the configure options below change), so a change under
+      # one-s/glprobe/ reuses the DLLs. Saved right after the build, so a failing glprobe step still keeps it.
       - name: Restore Mesa build
         id: mesa
         uses: actions/cache/restore@v4
@@ -210,14 +206,9 @@ jobs:
         env:
           GALLIUM_DRIVER: d3d12
           WGL_DISABLE_ERROR_DIALOGS: 1
+        # results/new-ref gets every image whose scene passed its probes: the candidates for a new or changed reference.
         run: |
-          if ('${{ inputs.write_refs }}' -eq 'true') {
-            New-Item -ItemType File -Force "$env:RUNNER_TEMP\none.txt" | Out-Null
-            python one-s/glprobe/run.py --exe run\glprobe.exe --out results\dxil --title "DXIL path (writing references)" `
-              --expect "$env:RUNNER_TEMP\none.txt" --write-ref results\new-ref
-          } else {
-            python one-s/glprobe/run.py --exe run\glprobe.exe --out results\dxil --title "DXIL path" --expect-all
-          }
+          python one-s/glprobe/run.py --exe run\glprobe.exe --out results\dxil --title "DXIL path" --expect-all --write-ref results\new-ref
           exit $LASTEXITCODE
 
       - name: glprobe, shader model capped at 5.1 (ratchet)

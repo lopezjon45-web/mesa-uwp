@@ -152,10 +152,10 @@ void scene_vertex_formats(SceneCtx &ctx)
    compile_program(R"(#version 400 core
 layout(location = 0) in vec4 pos;
 layout(location = 1) in vec4 col;
-layout(location = 2) in int packed;
+layout(location = 2) in int bits;
 out vec4 c;
 void main() {
-   vec3 extra = vec3(float(packed & 255), float((packed >> 8) & 255), float((packed >> 16) & 255)) / 255.0;
+   vec3 extra = vec3(float(bits & 255), float((bits >> 8) & 255), float((bits >> 16) & 255)) / 255.0;
    c = vec4(col.rgb + extra, col.a);
    gl_Position = pos;
 }

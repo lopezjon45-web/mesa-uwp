@@ -136,7 +136,7 @@ using namespace glp;
    X(triangle_basic, "one flat-colored triangle through a minimal VS/FS pair") \
    X(alu_float, "float ALU: arithmetic, sqrt/rsq, exp2/log2, trig, pow, min/max/clamp/mix/step/smoothstep, rounding") \
    X(alu_int, "int/uint ALU: add mul shifts and or xor not min max abs, signed vs unsigned compares, conversions") \
-   X(int_div, "signed and unsigned integer / and %, negative operands") \
+   X(int_div, "signed and unsigned integer / and %, negative operands for / (GLSL leaves % of negatives undefined)") \
    X(bitfield_ops, "bitfieldExtract/Insert, bitCount, findLSB, findMSB, bitfieldReverse (xemu vsh CMP decode)") \
    X(float_bits, "floatBitsToUint/Int and uintBits/intBitsToFloat (xemu FLOAT_MAX and clamp constants)") \
    X(precise_fma, "precise qualifier with fma (xemu psh Kahan determinant)") \
@@ -184,6 +184,7 @@ using namespace glp;
    X(primitive_restart, "GL_PRIMITIVE_RESTART with index 0xFFFF in a ushort strip") \
    X(transform_feedback, "interleaved transform feedback capture with rasterizer discard, read back and encoded") \
    X(clip_distance, "gl_ClipDistance[0] and [1] with GL_CLIP_DISTANCE0/1") \
+   X(loop_do_while, "do-while loop alone, the construct loops_branches gets wrong on WARP's DXIL path") \
    X(derivatives, "dFdx, dFdy, fwidth of linear varyings") \
    X(loops_branches, "dynamic for/do-while loops, break, continue, nested if, switch with fallthrough") \
    X(geometry_shader, "geometry shader emits an extra translated triangle") \
