@@ -38,6 +38,7 @@
 #endif
 
 #include "util/hash_table.h"
+#include "util/log.h"
 #include "util/set.h"
 #include "util/u_memory.h"
 #include "util/u_prim.h"
@@ -286,6 +287,41 @@ copy_input_attribs(const D3D12_INPUT_ELEMENT_DESC *ves_elements, D3D12_INPUT_ELE
    }
 }
 
+/* The UWP port ends the process when a pipeline state is refused. On the Xbox that leaves no dump and
+ * no message (xemu 0.9.228.1, 2026-10-20), so first say which HRESULT it was and keep the bytecode:
+ * pso-fail.txt and pso-fail-<stage>.dxbc in MESA_SHADER_CACHE_DIR, which xemu sets inside its
+ * LocalState. stderr is xemu's log file. */
+static void
+report_pso_failure(struct d3d12_gfx_pipeline_state *state, HRESULT hr)
+{
+   mesa_loge("D3D12: CreateGraphicsPipelineState failed: 0x%08lx", (unsigned long)hr);
+   fflush(stderr);
+   const char *dir = getenv("MESA_SHADER_CACHE_DIR");
+   if (!dir)
+      return;
+   char path[1024];
+   snprintf(path, sizeof(path), "%s/pso-fail.txt", dir);
+   FILE *f = fopen(path, "w");
+   if (f) {
+      fprintf(f, "hr 0x%08lx prim %d so_targets %u samples %u\n", (unsigned long)hr, (int)state->prim_type,
+              state->num_so_targets, state->samples);
+      for (unsigned i = 0; i < MESA_SHADER_STAGES; i++)
+         if (state->stages[i])
+            fprintf(f, "stage %u bytes %u\n", i, (unsigned)state->stages[i]->bytecode_length);
+      fclose(f);
+   }
+   for (unsigned i = 0; i < MESA_SHADER_STAGES; i++) {
+      if (!state->stages[i])
+         continue;
+      snprintf(path, sizeof(path), "%s/pso-fail-%u.dxbc", dir, i);
+      f = fopen(path, "wb");
+      if (f) {
+         fwrite(state->stages[i]->bytecode, 1, state->stages[i]->bytecode_length, f);
+         fclose(f);
+      }
+   }
+}
+
 static ID3D12PipelineState *
 create_gfx_pipeline_state(struct d3d12_context *ctx)
 {
@@ -418,6 +454,7 @@ create_gfx_pipeline_state(struct d3d12_context *ctx)
 
       if (FAILED(hr = screen->dev->CreatePipelineState(&pso_stream_desc,
                                                        IID_PPV_ARGS(&ret)))) {
+         report_pso_failure(state, hr);
          std::_Exit(hr);
          return NULL;
       }
@@ -426,6 +463,7 @@ create_gfx_pipeline_state(struct d3d12_context *ctx)
       D3D12_GRAPHICS_PIPELINE_STATE_DESC v0desc = pso_desc.GraphicsDescV0();
       if (FAILED(hr = screen->dev->CreateGraphicsPipelineState(&v0desc,
                                                                IID_PPV_ARGS(&ret)))) {
+         report_pso_failure(state, hr);
          std::_Exit(hr);
          return NULL;
       }
