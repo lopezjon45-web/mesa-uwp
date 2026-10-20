@@ -198,7 +198,10 @@ using namespace glp;
    X(fence_sync, "glFenceSync and glClientWaitSync signal after a draw (xemu)") \
    X(fbo_render_to_texture, "render into a texture FBO, sample it in a second pass (RetroArch glcore)") \
    X(blit_framebuffer, "glBlitFramebuffer 2x NEAREST upscale and a mirrored blit (RetroArch glcore)") \
-   X(xemu_gpuprops, "xemu's first draw, verbatim: RBO FBO, VS+GS+FS with gl_VertexID and no attributes, tri/strip/fan, glReadPixels")
+   X(xemu_gpuprops, "xemu's first draw, verbatim: RBO FBO, VS+GS+FS with gl_VertexID and no attributes, tri/strip/fan, glReadPixels") \
+   X(xemu_gpuprops_nogs, "xemu_gpuprops without the geometry shader") \
+   X(xemu_gpuprops_noarrays, "xemu_gpuprops with the arrays as arithmetic on gl_VertexID (no uniform block)") \
+   X(xemu_gpuprops_noprecise, "xemu_gpuprops without `precise` in the geometry shader")
 
 struct RGBA {
    uint8_t r, g, b, a;

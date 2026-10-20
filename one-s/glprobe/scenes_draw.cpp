@@ -537,14 +537,15 @@ void scene_fence_sync(SceneCtx &ctx)
 }
 
 // xemu (hw/xbox/nv2a/pgraph/gl/gpuprops.c) runs this before anything else is drawn, to learn the GPU's
-// triangle winding under a geometry shader. On the Xbox One S with the DXBC backend the process dies about a
+// triangle winding under a geometry shader. On the Xbox One S with the DXBC backend the process died about a
 // second after this point with no log line and no dump (2026-10-19), so every call is repeated here as xemu
 // makes it: a renderbuffer-backed FBO, a VS that indexes constant arrays with gl_VertexID and reads no
 // attribute, a GS with `precise` arithmetic on its inputs, three draws from an empty VAO (the fan goes through
 // primconvert), glFinish, glReadPixels. A failure throws with the GL status or the info log, which the
 // console cannot show. The strip and fan colours depend on the provoking-vertex order the test exists to
 // measure, so only the first triangle and the background are probed; the DXIL reference covers the rest.
-void scene_xemu_gpuprops(SceneCtx &ctx)
+// The switches cut one ingredient each, to tell which stage a driver trips on.
+static void xemu_gpuprops_variant(SceneCtx &ctx, bool with_gs, bool with_arrays, bool with_precise)
 {
    GLuint fbo = 0, rbo = 0;
    glGenFramebuffers(1, &fbo);
@@ -557,9 +558,11 @@ void scene_xemu_gpuprops(SceneCtx &ctx)
    if (status != GL_FRAMEBUFFER_COMPLETE)
       throw Fail{4, "renderbuffer FBO incomplete, status 0x" + std::to_string(status)};
 
-   GLuint prog = compile_program(R"(#version 400
-out vec3 v_fragColor;
-
+   // xemu's arrays, or the same values from arithmetic on gl_VertexID (no uniform block, no b0)
+   // Without the GS the varying is flat, so the first triangle still shows its first vertex's colour.
+   std::string vs = std::string("#version 400\n") + (with_gs ? "" : "flat ") + "out vec3 v_fragColor;\n";
+   if (with_arrays)
+      vs += R"(
 vec2 positions[11] = vec2[](
     vec2(-0.5, -0.75),
     vec2(-0.25, -0.25),
@@ -587,21 +590,40 @@ vec3 colors[11] = vec3[](
     vec3(0.0, 1.0, 1.0),
     vec3(1.0, 0.0, 0.0)
 );
-
-void main() {
-    gl_Position = vec4(positions[gl_VertexID], 0.0, 1.0);
-    v_fragColor = colors[gl_VertexID];
+vec2 position(int i) { return positions[i]; }
+vec3 color(int i) { return colors[i]; }
+)";
+   else
+      vs += R"(
+vec2 position(int i) {
+    if (i == 0) return vec2(-0.5, -0.75);
+    if (i == 1) return vec2(-0.25, -0.25);
+    if (i == 2) return vec2(-0.75, -0.25);
+    if (i == 3) return vec2(0.25, -0.25);
+    if (i == 4) return vec2(0.25, -0.75);
+    if (i == 5) return vec2(0.75, -0.25);
+    if (i == 6) return vec2(0.75, -0.75);
+    if (i == 7) return vec2(-0.75, 0.75);
+    if (i == 8) return vec2(-0.75, 0.25);
+    if (i == 9) return vec2(-0.25, 0.25);
+    return vec2(-0.25, 0.75);
 }
-)",
-                                 R"(#version 400
-out vec4 outColor;
-in vec3 fragColor;
-
-void main() {
-    outColor = vec4(fragColor, 1.0);
+vec3 color(int i) {
+    int k = i < 7 ? i % 3 : (i - 7) % 4;
+    if (i == 6) k = 3;
+    if (k == 0) return vec3(0.0, 0.0, 1.0);
+    if (k == 1) return vec3(0.0, 1.0, 0.0);
+    if (k == 2) return vec3(0.0, 1.0, 1.0);
+    return vec3(1.0, 0.0, 0.0);
 }
-)",
-                                 R"(#version 400
+)";
+   vs += R"(
+void main() {
+    gl_Position = vec4(position(gl_VertexID), 0.0, 1.0);
+    v_fragColor = color(gl_VertexID);
+}
+)";
+   std::string gs = R"(#version 400
 layout(triangles) in;
 layout(triangle_strip, max_vertices = 3) out;
 out vec3 fragColor;
@@ -610,13 +632,31 @@ in vec3 v_fragColor[];
 void main() {
     for (int i = 0; i < 3; i++) {
         gl_Position = gl_in[i].gl_Position + vec4(1.0/16384.0, 1.0/16384.0, 0.0, 0.0);
-        precise vec3 color = v_fragColor[0]*(0.999 + gl_in[i].gl_Position.x/16384.0) + v_fragColor[1]*0.00005 + v_fragColor[2]*0.00005;
+        )" + std::string(with_precise ? "precise " : "") +
+                    R"(vec3 color = v_fragColor[0]*(0.999 + gl_in[i].gl_Position.x/16384.0) + v_fragColor[1]*0.00005 + v_fragColor[2]*0.00005;
         fragColor = color;
         EmitVertex();
     }
     EndPrimitive();
 }
-)");
+)";
+   const char *fs = with_gs ? R"(#version 400
+out vec4 outColor;
+in vec3 fragColor;
+
+void main() {
+    outColor = vec4(fragColor, 1.0);
+}
+)"
+                            : R"(#version 400
+out vec4 outColor;
+flat in vec3 v_fragColor;
+
+void main() {
+    outColor = vec4(v_fragColor, 1.0);
+}
+)";
+   GLuint prog = compile_program(vs.c_str(), fs, with_gs ? gs.c_str() : nullptr);
    glUseProgram(prog);
    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
@@ -663,3 +703,8 @@ void main() {
    probe(ctx, 32, 32, BLACK);
    probe(ctx, 2, 2, BLACK);
 }
+
+void scene_xemu_gpuprops(SceneCtx &ctx) { xemu_gpuprops_variant(ctx, true, true, true); }
+void scene_xemu_gpuprops_nogs(SceneCtx &ctx) { xemu_gpuprops_variant(ctx, false, true, true); }
+void scene_xemu_gpuprops_noarrays(SceneCtx &ctx) { xemu_gpuprops_variant(ctx, true, false, true); }
+void scene_xemu_gpuprops_noprecise(SceneCtx &ctx) { xemu_gpuprops_variant(ctx, true, true, false); }
