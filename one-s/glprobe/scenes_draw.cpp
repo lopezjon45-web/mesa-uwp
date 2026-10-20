@@ -535,3 +535,131 @@ void scene_fence_sync(SceneCtx &ctx)
    probe(ctx, 16, 32, {0, 255, 0, 255});
    probe(ctx, 48, 32, {0, 0, 255, 255});
 }
+
+// xemu (hw/xbox/nv2a/pgraph/gl/gpuprops.c) runs this before anything else is drawn, to learn the GPU's
+// triangle winding under a geometry shader. On the Xbox One S with the DXBC backend the process dies about a
+// second after this point with no log line and no dump (2026-10-19), so every call is repeated here as xemu
+// makes it: a renderbuffer-backed FBO, a VS that indexes constant arrays with gl_VertexID and reads no
+// attribute, a GS with `precise` arithmetic on its inputs, three draws from an empty VAO (the fan goes through
+// primconvert), glFinish, glReadPixels. A failure throws with the GL status or the info log, which the
+// console cannot show. The strip and fan colours depend on the provoking-vertex order the test exists to
+// measure, so only the first triangle and the background are probed; the DXIL reference covers the rest.
+void scene_xemu_gpuprops(SceneCtx &ctx)
+{
+   GLuint fbo = 0, rbo = 0;
+   glGenFramebuffers(1, &fbo);
+   glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+   glGenRenderbuffers(1, &rbo);
+   glBindRenderbuffer(GL_RENDERBUFFER, rbo);
+   glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, ctx.w, ctx.h);
+   glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rbo);
+   GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+   if (status != GL_FRAMEBUFFER_COMPLETE)
+      throw Fail{4, "renderbuffer FBO incomplete, status 0x" + std::to_string(status)};
+
+   GLuint prog = compile_program(R"(#version 400
+out vec3 v_fragColor;
+
+vec2 positions[11] = vec2[](
+    vec2(-0.5, -0.75),
+    vec2(-0.25, -0.25),
+    vec2(-0.75, -0.25),
+    vec2(0.25, -0.25),
+    vec2(0.25, -0.75),
+    vec2(0.75, -0.25),
+    vec2(0.75, -0.75),
+    vec2(-0.75, 0.75),
+    vec2(-0.75, 0.25),
+    vec2(-0.25, 0.25),
+    vec2(-0.25, 0.75)
+);
+
+vec3 colors[11] = vec3[](
+    vec3(0.0, 0.0, 1.0),
+    vec3(0.0, 1.0, 0.0),
+    vec3(0.0, 1.0, 1.0),
+    vec3(0.0, 0.0, 1.0),
+    vec3(0.0, 1.0, 0.0),
+    vec3(0.0, 1.0, 1.0),
+    vec3(1.0, 0.0, 0.0),
+    vec3(0.0, 0.0, 1.0),
+    vec3(0.0, 1.0, 0.0),
+    vec3(0.0, 1.0, 1.0),
+    vec3(1.0, 0.0, 0.0)
+);
+
+void main() {
+    gl_Position = vec4(positions[gl_VertexID], 0.0, 1.0);
+    v_fragColor = colors[gl_VertexID];
+}
+)",
+                                 R"(#version 400
+out vec4 outColor;
+in vec3 fragColor;
+
+void main() {
+    outColor = vec4(fragColor, 1.0);
+}
+)",
+                                 R"(#version 400
+layout(triangles) in;
+layout(triangle_strip, max_vertices = 3) out;
+out vec3 fragColor;
+in vec3 v_fragColor[];
+
+void main() {
+    for (int i = 0; i < 3; i++) {
+        gl_Position = gl_in[i].gl_Position + vec4(1.0/16384.0, 1.0/16384.0, 0.0, 0.0);
+        precise vec3 color = v_fragColor[0]*(0.999 + gl_in[i].gl_Position.x/16384.0) + v_fragColor[1]*0.00005 + v_fragColor[2]*0.00005;
+        fragColor = color;
+        EmitVertex();
+    }
+    EndPrimitive();
+}
+)");
+   glUseProgram(prog);
+   glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+   glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+   glClear(GL_COLOR_BUFFER_BIT);
+   glDisable(GL_CULL_FACE);
+   glDisable(GL_DEPTH_TEST);
+   glDisable(GL_STENCIL_TEST);
+   glProvokingVertex(GL_FIRST_VERTEX_CONVENTION);
+   glViewport(0, 0, ctx.w, ctx.h);
+
+   GLuint vao = 0;
+   glGenVertexArrays(1, &vao);
+   glBindVertexArray(vao);
+   glDrawArrays(GL_TRIANGLES, 0, 3);
+   glDrawArrays(GL_TRIANGLE_STRIP, 3, 4);
+   glDrawArrays(GL_TRIANGLE_FAN, 7, 4);
+   glFinish();
+   GLenum err = glGetError();
+   if (err != GL_NO_ERROR)
+      throw Fail{4, "GL error 0x" + std::to_string(err) + " after the three draws"};
+
+   std::vector<uint8_t> pixels((size_t)ctx.w * ctx.h * 4);
+   glReadBuffer(GL_COLOR_ATTACHMENT0);
+   glReadPixels(0, 0, ctx.w, ctx.h, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+   err = glGetError();
+   if (err != GL_NO_ERROR)
+      throw Fail{4, "GL error 0x" + std::to_string(err) + " in glReadPixels from the renderbuffer"};
+
+   glBindVertexArray(0);
+   glDeleteVertexArrays(1, &vao);
+   glUseProgram(0);
+   glDeleteProgram(prog);
+   glBindFramebuffer(GL_FRAMEBUFFER, ctx.fbo);
+   glDeleteFramebuffers(1, &fbo);
+   glBindRenderbuffer(GL_RENDERBUFFER, 0);
+   glDeleteRenderbuffers(1, &rbo);
+
+   // What xemu read back becomes the scene's image.
+   glBindTexture(GL_TEXTURE_2D, ctx.color_tex);
+   glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, ctx.w, ctx.h, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+   glBindTexture(GL_TEXTURE_2D, 0);
+
+   probe(ctx, 16, 18, unorm(0.0, 0.0, 1.0));  // first triangle: colour of its first vertex
+   probe(ctx, 32, 32, BLACK);
+   probe(ctx, 2, 2, BLACK);
+}

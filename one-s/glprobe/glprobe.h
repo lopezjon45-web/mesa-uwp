@@ -119,7 +119,11 @@
    X(PFNGLENDTRANSFORMFEEDBACKPROC, glEndTransformFeedback) \
    X(PFNGLFENCESYNCPROC, glFenceSync) \
    X(PFNGLCLIENTWAITSYNCPROC, glClientWaitSync) \
-   X(PFNGLDELETESYNCPROC, glDeleteSync)
+   X(PFNGLDELETESYNCPROC, glDeleteSync) \
+   X(PFNGLDELETEVERTEXARRAYSPROC, glDeleteVertexArrays) \
+   X(PFNGLDELETEPROGRAMPROC, glDeleteProgram) \
+   X(PFNGLDELETEFRAMEBUFFERSPROC, glDeleteFramebuffers) \
+   X(PFNGLDELETERENDERBUFFERSPROC, glDeleteRenderbuffers)
 
 // Pointers live in a namespace so they never collide with the C symbols opengl32.dll or
 // OpenGL.framework export under the same names.
@@ -193,7 +197,8 @@ using namespace glp;
    X(occlusion_query, "GL_SAMPLES_PASSED and GL_ANY_SAMPLES_PASSED results encoded as colors") \
    X(fence_sync, "glFenceSync and glClientWaitSync signal after a draw (xemu)") \
    X(fbo_render_to_texture, "render into a texture FBO, sample it in a second pass (RetroArch glcore)") \
-   X(blit_framebuffer, "glBlitFramebuffer 2x NEAREST upscale and a mirrored blit (RetroArch glcore)")
+   X(blit_framebuffer, "glBlitFramebuffer 2x NEAREST upscale and a mirrored blit (RetroArch glcore)") \
+   X(xemu_gpuprops, "xemu's first draw, verbatim: RBO FBO, VS+GS+FS with gl_VertexID and no attributes, tri/strip/fan, glReadPixels")
 
 struct RGBA {
    uint8_t r, g, b, a;
