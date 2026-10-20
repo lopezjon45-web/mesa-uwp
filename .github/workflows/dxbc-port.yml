@@ -142,7 +142,7 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $sym = Get-ChildItem "C:\Program Files\Microsoft Visual Studio" -Recurse -Filter llvm-symbolizer.exe -ErrorAction SilentlyContinue | Select-Object -First 1
+          $sym = Get-ChildItem "C:\Program Files\Microsoft Visual Studio" -Recurse -Filter llvm-symbolizer.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '\\Llvm\\x64\\bin\\' } | Select-Object -First 1
           $hits = Select-String -Path results\*\*.log -Pattern 'CRASH code=\S+ at (\S+?)\+0x([0-9a-fA-F]+)' -AllMatches
           if (-not $hits) { "no crashes"; exit 0 }
           if (-not $sym) { "llvm-symbolizer not found"; exit 0 }
