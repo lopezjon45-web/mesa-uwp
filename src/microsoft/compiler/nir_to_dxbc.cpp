@@ -96,6 +96,16 @@ struct ntd_context {
    char *err;
    size_t errlen;
    bool vulkan;
+   /* GL, SM 5.1: the constant buffer declaration (its ID) that covers each b register. The root
+    * signature binds the default uniform block and the UBO array as CBV descriptors and the
+    * state-variable block as 32-bit root constants, and D3D12 refuses a PSO whose shader puts
+    * registers of both kinds in one declared range. So the three get their own declarations,
+    * like nir_to_dxil's __ubo_uniforms, __ubos and __ubo_state_vars. */
+   unsigned cb_decl_id_ubo0 = 0;
+   unsigned cb_decl_id_array = 0;
+   unsigned cb_decl_id_state_vars = 0;
+   unsigned cb_state_vars_register = ~0u;
+   bool cb_has_ubo0 = false;
 
    ntd_context()
    {
@@ -935,9 +945,19 @@ emit_load_ubo_vec4(struct ntd_context *ctx, nir_intrinsic_instr *intr)
    src.SetSwizzle();
    src.m_NumComponents = D3D10_SB_OPERAND_4_COMPONENT;
    if (is_sm51(ctx) && !ctx->vulkan) {
-      // GL: the block index is the b register, and emit_dcl declared one range (ID 0) over all of them.
+      // GL: the block index is the b register; the declaration ID is the one emit_dcl gave that
+      // register. Only the UBO array is indexed dynamically; b0 and the state-variable block are
+      // always addressed with a constant.
+      unsigned id = ctx->cb_decl_id_array;
+      if (nir_src_is_const(intr->src[0])) {
+         unsigned block = nir_src_as_uint(intr->src[0]);
+         if (block == 0 && ctx->cb_has_ubo0)
+            id = ctx->cb_decl_id_ubo0;
+         else if (block == ctx->cb_state_vars_register)
+            id = ctx->cb_decl_id_state_vars;
+      }
       src.m_IndexDimension = D3D10_SB_OPERAND_INDEX_3D;
-      src.SetIndex(0, 0);
+      src.SetIndex(0, id);
       src_to_index(ctx, 0, intr->src[0], src, 1);
       src_to_index(ctx, 0, intr->src[1], src, 2);
    } else if (is_sm51(ctx)) {
@@ -1598,8 +1618,32 @@ emit_dcl(struct ntd_context *ctx)
       unsigned first = has_ubo0 || !ctx->shader->info.first_ubo_is_default_ubo ? 0 : 1;
       if (num_ubos > first) {
          if (is_sm51(ctx)) {
-            ctx->mod.shader.EmitIndexableConstantBufferDecl(0, first, num_ubos - 1, max_vec4s,
-               D3D10_SB_CONSTANT_BUFFER_DYNAMIC_INDEXED, 0);
+            /* Three declarations at most, the split nir_to_dxil makes: b0 alone when the default
+             * uniform block exists, the UBO array, and the state-variable block (the last UBO,
+             * bound as root constants) alone. A declared range may not mix the two root
+             * parameter kinds, or CreateGraphicsPipelineState answers E_INVALIDARG (seen with
+             * xemu's first draw, whose VS has both uniforms and gl_VertexID's first_vertex). */
+            bool has_state_vars = ctx->opts->last_ubo_is_not_arrayed;
+            unsigned array_lo = ctx->shader->info.first_ubo_is_default_ubo ? 1 : 0;
+            unsigned array_hi = num_ubos - 1 - (has_state_vars ? 1 : 0);
+            unsigned id = 0;
+            ctx->cb_has_ubo0 = has_ubo0;
+            if (has_ubo0) {
+               ctx->cb_decl_id_ubo0 = id++;
+               ctx->mod.shader.EmitIndexableConstantBufferDecl(ctx->cb_decl_id_ubo0, 0, 0, max_vec4s,
+                  D3D10_SB_CONSTANT_BUFFER_DYNAMIC_INDEXED, 0);
+            }
+            if (array_hi >= array_lo && array_hi != ~0u) {
+               ctx->cb_decl_id_array = id++;
+               ctx->mod.shader.EmitIndexableConstantBufferDecl(ctx->cb_decl_id_array, array_lo, array_hi,
+                  max_vec4s, D3D10_SB_CONSTANT_BUFFER_DYNAMIC_INDEXED, 0);
+            }
+            if (has_state_vars) {
+               ctx->cb_decl_id_state_vars = id++;
+               ctx->cb_state_vars_register = num_ubos - 1;
+               ctx->mod.shader.EmitIndexableConstantBufferDecl(ctx->cb_decl_id_state_vars, num_ubos - 1,
+                  num_ubos - 1, max_vec4s, D3D10_SB_CONSTANT_BUFFER_DYNAMIC_INDEXED, 0);
+            }
          } else {
             for (unsigned i = first; i < num_ubos; ++i)
                ctx->mod.shader.EmitConstantBufferDecl(i, max_vec4s, D3D10_SB_CONSTANT_BUFFER_DYNAMIC_INDEXED);
