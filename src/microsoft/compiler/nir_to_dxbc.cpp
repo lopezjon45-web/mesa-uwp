@@ -104,6 +104,8 @@ struct ntd_context {
    unsigned cb_decl_id_ubo0 = 0;
    unsigned cb_decl_id_array = 0;
    unsigned cb_decl_id_state_vars = 0;
+   unsigned cb_array_lo = 0;
+   unsigned cb_array_hi = ~0u;
    unsigned cb_state_vars_register = ~0u;
    bool cb_has_ubo0 = false;
 
@@ -1544,6 +1546,24 @@ dxil_to_dxbc_interpolation_mode(dxil_interpolation_mode mode)
 static void
 count_resources(struct ntd_context *ctx)
 {
+   if (is_sm51(ctx) && !ctx->vulkan && ctx->shader->info.num_ubos) {
+      /* The constant buffer declaration IDs, decided before the body is converted because every
+       * load names its declaration (see the ntd_context fields). */
+      unsigned num_ubos = ctx->shader->info.num_ubos;
+      bool has_state_vars = ctx->opts->last_ubo_is_not_arrayed;
+      unsigned id = 0;
+      ctx->cb_has_ubo0 = ctx->shader->num_uniforms > 0 && ctx->shader->info.first_ubo_is_default_ubo;
+      ctx->cb_array_lo = ctx->shader->info.first_ubo_is_default_ubo ? 1 : 0;
+      ctx->cb_array_hi = num_ubos - 1 - (has_state_vars ? 1 : 0);
+      if (ctx->cb_has_ubo0)
+         ctx->cb_decl_id_ubo0 = id++;
+      if (ctx->cb_array_hi >= ctx->cb_array_lo && ctx->cb_array_hi != ~0u)
+         ctx->cb_decl_id_array = id++;
+      if (has_state_vars) {
+         ctx->cb_state_vars_register = num_ubos - 1;
+         ctx->cb_decl_id_state_vars = id++;
+      }
+   }
    if (is_sm51(ctx)) {
       unsigned num_ubos = 0;
       nir_foreach_variable_with_modes(ubo, ctx->shader, nir_var_mem_ubo) {
@@ -1623,27 +1643,16 @@ emit_dcl(struct ntd_context *ctx)
              * bound as root constants) alone. A declared range may not mix the two root
              * parameter kinds, or CreateGraphicsPipelineState answers E_INVALIDARG (seen with
              * xemu's first draw, whose VS has both uniforms and gl_VertexID's first_vertex). */
-            bool has_state_vars = ctx->opts->last_ubo_is_not_arrayed;
-            unsigned array_lo = ctx->shader->info.first_ubo_is_default_ubo ? 1 : 0;
-            unsigned array_hi = num_ubos - 1 - (has_state_vars ? 1 : 0);
-            unsigned id = 0;
-            ctx->cb_has_ubo0 = has_ubo0;
-            if (has_ubo0) {
-               ctx->cb_decl_id_ubo0 = id++;
+            if (ctx->cb_has_ubo0)
                ctx->mod.shader.EmitIndexableConstantBufferDecl(ctx->cb_decl_id_ubo0, 0, 0, max_vec4s,
                   D3D10_SB_CONSTANT_BUFFER_DYNAMIC_INDEXED, 0);
-            }
-            if (array_hi >= array_lo && array_hi != ~0u) {
-               ctx->cb_decl_id_array = id++;
-               ctx->mod.shader.EmitIndexableConstantBufferDecl(ctx->cb_decl_id_array, array_lo, array_hi,
-                  max_vec4s, D3D10_SB_CONSTANT_BUFFER_DYNAMIC_INDEXED, 0);
-            }
-            if (has_state_vars) {
-               ctx->cb_decl_id_state_vars = id++;
-               ctx->cb_state_vars_register = num_ubos - 1;
-               ctx->mod.shader.EmitIndexableConstantBufferDecl(ctx->cb_decl_id_state_vars, num_ubos - 1,
-                  num_ubos - 1, max_vec4s, D3D10_SB_CONSTANT_BUFFER_DYNAMIC_INDEXED, 0);
-            }
+            if (ctx->cb_array_hi >= ctx->cb_array_lo && ctx->cb_array_hi != ~0u)
+               ctx->mod.shader.EmitIndexableConstantBufferDecl(ctx->cb_decl_id_array, ctx->cb_array_lo,
+                  ctx->cb_array_hi, max_vec4s, D3D10_SB_CONSTANT_BUFFER_DYNAMIC_INDEXED, 0);
+            if (ctx->cb_state_vars_register != ~0u)
+               ctx->mod.shader.EmitIndexableConstantBufferDecl(ctx->cb_decl_id_state_vars,
+                  ctx->cb_state_vars_register, ctx->cb_state_vars_register, max_vec4s,
+                  D3D10_SB_CONSTANT_BUFFER_DYNAMIC_INDEXED, 0);
          } else {
             for (unsigned i = first; i < num_ubos; ++i)
                ctx->mod.shader.EmitConstantBufferDecl(i, max_vec4s, D3D10_SB_CONSTANT_BUFFER_DYNAMIC_INDEXED);
