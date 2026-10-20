@@ -58,3 +58,7 @@ occlusion_query
 fence_sync
 fbo_render_to_texture
 blit_framebuffer
+xemu_gpuprops
+xemu_gpuprops_nogs
+xemu_gpuprops_noarrays
+xemu_gpuprops_noprecise
