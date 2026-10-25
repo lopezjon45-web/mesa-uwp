@@ -32,7 +32,7 @@
 #include "d3d12_pipeline_state.h"
 #include "d3d12_compiler.h"
 #include "d3d12_context.h"
-#include "d3d12_root_signature.h"
+#include "d3d12_pso_dump.h"
 #include "d3d12_screen.h"
 #ifndef _GAMING_XBOX
 #include <directx/d3dx12_pipeline_state_stream.h>
@@ -45,8 +45,8 @@
 #include "util/u_prim.h"
 
 #include <dxguids/dxguids.h>
+#include <cstdio>
 #include <cstdlib>
-#include <vector>
 
 struct d3d12_gfx_pso_entry {
    struct d3d12_gfx_pipeline_state key;
@@ -289,169 +289,6 @@ copy_input_attribs(const D3D12_INPUT_ELEMENT_DESC *ves_elements, D3D12_INPUT_ELE
    }
 }
 
-/* The UWP port ends the process when a pipeline state is refused. On the Xbox that leaves no dump and
- * no message (xemu 0.9.228.1, 2026-10-20), so first say which HRESULT it was and keep the bytecode:
- * pso-fail.txt and pso-fail-<stage>.dxbc in MESA_SHADER_CACHE_DIR, which xemu sets inside its
- * LocalState. stderr is xemu's log file. */
-static void
-report_pso_failure(struct d3d12_gfx_pipeline_state *state, HRESULT hr)
-{
-   mesa_loge("D3D12: CreateGraphicsPipelineState failed: 0x%08lx", (unsigned long)hr);
-   fflush(stderr);
-   const char *dir = getenv("MESA_SHADER_CACHE_DIR");
-   if (!dir)
-      return;
-   char path[1024];
-   snprintf(path, sizeof(path), "%s/pso-fail.txt", dir);
-   FILE *f = fopen(path, "w");
-   if (f) {
-      fprintf(f, "hr 0x%08lx prim %d so_targets %u samples %u\n", (unsigned long)hr, (int)state->prim_type,
-              state->num_so_targets, state->samples);
-      for (unsigned i = 0; i < MESA_SHADER_STAGES; i++)
-         if (state->stages[i])
-            fprintf(f, "stage %u bytes %u\n", i, (unsigned)state->stages[i]->bytecode_length);
-      fclose(f);
-   }
-   for (unsigned i = 0; i < MESA_SHADER_STAGES; i++) {
-      if (!state->stages[i])
-         continue;
-      snprintf(path, sizeof(path), "%s/pso-fail-%u.dxbc", dir, i);
-      f = fopen(path, "wb");
-      if (f) {
-         fwrite(state->stages[i]->bytecode, 1, state->stages[i]->bytecode_length, f);
-         fclose(f);
-      }
-   }
-}
-
-static void
-dump_bytes(const char *dir, unsigned n, const char *what, const void *p, size_t len)
-{
-   char path[1024];
-   snprintf(path, sizeof(path), "%s/pso-%02u-%s", dir, n, what);
-   FILE *f = fopen(path, "wb");
-   if (!f)
-      return;
-   fwrite(p, 1, len, f);
-   fclose(f);
-}
-
-/* With d3d12_pso_dump_dir() set, every graphics pipeline is written before its create call: pso-NN.txt holds
- * the V0 descriptor field by field as "key value" lines (array elements positional, documented by the # lines),
- * pso-NN-rs.bin the serialized root signature and pso-NN-<stage>.dxbc the bytecode; the HRESULT is appended
- * after the call. The One S driver throws inside the create and leaves no other record (2026-10-20), so these
- * files are what the D3D12 probe replays on the console. */
-static void
-dump_pso_desc(const char *dir, unsigned n, struct d3d12_gfx_pipeline_state *state,
-              const D3D12_GRAPHICS_PIPELINE_STATE_DESC *d, const d3d12_depth_stencil_desc_type *ds2,
-              bool stream_form)
-{
-   char path[1024];
-   snprintf(path, sizeof(path), "%s/pso-%02u.txt", dir, n);
-   FILE *f = fopen(path, "w");
-   if (!f)
-      return;
-   fprintf(f, "form %s\n", stream_form ? "stream" : "v0");
-   fprintf(f, "prim %d\nnum_so_targets %u\nsamples %u\nnum_cbufs %u\n", (int)state->prim_type,
-           state->num_so_targets, state->samples, state->num_cbufs);
-   const struct { const char *name; const D3D12_SHADER_BYTECODE *code; } stages[] = {
-      { "vs", &d->VS }, { "hs", &d->HS }, { "ds", &d->DS }, { "gs", &d->GS }, { "ps", &d->PS },
-   };
-   for (const auto &s : stages) {
-      fprintf(f, "%s.bytes %u\n", s.name, (unsigned)s.code->BytecodeLength);
-      if (s.code->BytecodeLength) {
-         char name[16];
-         snprintf(name, sizeof(name), "%s.dxbc", s.name);
-         dump_bytes(dir, n, name, s.code->pShaderBytecode, s.code->BytecodeLength);
-      }
-   }
-   std::vector<uint8_t> rs(65536);
-   unsigned rs_len = d3d12_root_signature_blob(d->pRootSignature, rs.data(), (unsigned)rs.size());
-   fprintf(f, "rs.bytes %u\n", rs_len);
-   if (rs_len)
-      dump_bytes(dir, n, "rs.bin", rs.data(), rs_len);
-
-   const D3D12_STREAM_OUTPUT_DESC &so = d->StreamOutput;
-   fprintf(f, "so.NumEntries %u\nso.pSODeclaration %s\nso.NumStrides %u\nso.pBufferStrides %s\nso.RasterizedStream %u\n",
-           so.NumEntries, so.pSODeclaration ? "nonnull" : "null", so.NumStrides,
-           so.pBufferStrides ? "nonnull" : "null", so.RasterizedStream);
-   fprintf(f, "# so.entry<i> Stream SemanticName SemanticIndex StartComponent ComponentCount OutputSlot\n");
-   for (unsigned i = 0; i < so.NumEntries; i++) {
-      const D3D12_SO_DECLARATION_ENTRY &e = so.pSODeclaration[i];
-      fprintf(f, "so.entry%u %u %s %u %u %u %u\n", i, e.Stream, e.SemanticName ? e.SemanticName : "-",
-              e.SemanticIndex, e.StartComponent, e.ComponentCount, e.OutputSlot);
-   }
-   for (unsigned i = 0; i < so.NumStrides; i++)
-      fprintf(f, "so.stride%u %u\n", i, so.pBufferStrides[i]);
-
-   const D3D12_BLEND_DESC &b = d->BlendState;
-   fprintf(f, "blend.AlphaToCoverageEnable %d\nblend.IndependentBlendEnable %d\n",
-           b.AlphaToCoverageEnable, b.IndependentBlendEnable);
-   fprintf(f, "# blend.rt<i> BlendEnable LogicOpEnable SrcBlend DestBlend BlendOp SrcBlendAlpha DestBlendAlpha BlendOpAlpha LogicOp RenderTargetWriteMask\n");
-   for (unsigned i = 0; i < 8; i++) {
-      const D3D12_RENDER_TARGET_BLEND_DESC &rt = b.RenderTarget[i];
-      fprintf(f, "blend.rt%u %d %d %d %d %d %d %d %d %d %u\n", i, rt.BlendEnable, rt.LogicOpEnable, rt.SrcBlend,
-              rt.DestBlend, rt.BlendOp, rt.SrcBlendAlpha, rt.DestBlendAlpha, rt.BlendOpAlpha, rt.LogicOp,
-              rt.RenderTargetWriteMask);
-   }
-   fprintf(f, "SampleMask 0x%08x\n", d->SampleMask);
-
-   const D3D12_RASTERIZER_DESC &r = d->RasterizerState;
-   fprintf(f, "rast.FillMode %d\nrast.CullMode %d\nrast.FrontCounterClockwise %d\nrast.DepthBias %d\n"
-              "rast.DepthBiasClamp %.9g\nrast.SlopeScaledDepthBias %.9g\nrast.DepthClipEnable %d\n"
-              "rast.MultisampleEnable %d\nrast.AntialiasedLineEnable %d\nrast.ForcedSampleCount %u\n"
-              "rast.ConservativeRaster %d\n",
-           r.FillMode, r.CullMode, r.FrontCounterClockwise, r.DepthBias, r.DepthBiasClamp, r.SlopeScaledDepthBias,
-           r.DepthClipEnable, r.MultisampleEnable, r.AntialiasedLineEnable, r.ForcedSampleCount, r.ConservativeRaster);
-
-   const D3D12_DEPTH_STENCIL_DESC &z = d->DepthStencilState;
-   fprintf(f, "ds.DepthEnable %d\nds.DepthWriteMask %d\nds.DepthFunc %d\nds.StencilEnable %d\n"
-              "ds.StencilReadMask %u\nds.StencilWriteMask %u\n",
-           z.DepthEnable, z.DepthWriteMask, z.DepthFunc, z.StencilEnable, z.StencilReadMask, z.StencilWriteMask);
-   fprintf(f, "# ds.FrontFace/BackFace StencilFailOp StencilDepthFailOp StencilPassOp StencilFunc\n");
-   fprintf(f, "ds.FrontFace %d %d %d %d\nds.BackFace %d %d %d %d\n",
-           z.FrontFace.StencilFailOp, z.FrontFace.StencilDepthFailOp, z.FrontFace.StencilPassOp, z.FrontFace.StencilFunc,
-           z.BackFace.StencilFailOp, z.BackFace.StencilDepthFailOp, z.BackFace.StencilPassOp, z.BackFace.StencilFunc);
-   fprintf(f, "ds.DepthBoundsTestEnable %d\n", ds2->DepthBoundsTestEnable);
-#ifndef _GAMING_XBOX
-   fprintf(f, "# ds2.FrontFaceMasks/BackFaceMasks StencilReadMask StencilWriteMask (stream form only)\n");
-   fprintf(f, "ds2.FrontFaceMasks %u %u\nds2.BackFaceMasks %u %u\n",
-           ds2->FrontFace.StencilReadMask, ds2->FrontFace.StencilWriteMask,
-           ds2->BackFace.StencilReadMask, ds2->BackFace.StencilWriteMask);
-#endif
-
-   const D3D12_INPUT_LAYOUT_DESC &ia = d->InputLayout;
-   fprintf(f, "ia.NumElements %u\nia.pInputElementDescs %s\n", ia.NumElements,
-           ia.pInputElementDescs ? "nonnull" : "null");
-   fprintf(f, "# ia.el<i> SemanticName SemanticIndex Format InputSlot AlignedByteOffset InputSlotClass InstanceDataStepRate\n");
-   for (unsigned i = 0; i < ia.NumElements; i++) {
-      const D3D12_INPUT_ELEMENT_DESC &e = ia.pInputElementDescs[i];
-      fprintf(f, "ia.el%u %s %u %d %u %u %d %u\n", i, e.SemanticName, e.SemanticIndex, e.Format, e.InputSlot,
-              e.AlignedByteOffset, e.InputSlotClass, e.InstanceDataStepRate);
-   }
-
-   fprintf(f, "IBStripCutValue %d\nPrimitiveTopologyType %d\nNumRenderTargets %u\n",
-           d->IBStripCutValue, d->PrimitiveTopologyType, d->NumRenderTargets);
-   for (unsigned i = 0; i < 8; i++)
-      fprintf(f, "rtv%u %d\n", i, d->RTVFormats[i]);
-   fprintf(f, "DSVFormat %d\nSampleDesc.Count %u\nSampleDesc.Quality %u\nNodeMask %u\nCachedPSO.bytes %u\nFlags %d\n",
-           d->DSVFormat, d->SampleDesc.Count, d->SampleDesc.Quality, d->NodeMask,
-           (unsigned)d->CachedPSO.CachedBlobSizeInBytes, d->Flags);
-   fclose(f);
-}
-
-static void
-dump_pso_result(const char *dir, unsigned n, HRESULT hr)
-{
-   char path[1024];
-   snprintf(path, sizeof(path), "%s/pso-%02u.txt", dir, n);
-   FILE *f = fopen(path, "a");
-   if (!f)
-      return;
-   fprintf(f, "hr 0x%08lx\n", (unsigned long)hr);
-   fclose(f);
-}
-
 static ID3D12PipelineState *
 create_gfx_pipeline_state(struct d3d12_context *ctx)
 {
@@ -503,10 +340,10 @@ create_gfx_pipeline_state(struct d3d12_context *ctx)
    if (state->num_so_targets)
       fill_so_declaration(&state->so_info, last_vertex_stage_nir, entries, &num_entries, strides, &num_strides);
 
-   /* Without transform feedback the descriptor carries no stream output at all: NULL pointers, not the
-    * zero-count stack arrays upstream passes. Every pipeline the One S driver has accepted so far had NULL
-    * here, and it throws inside CreatePipelineState on xemu's first draw, which has no transform feedback
-    * (2026-10-20); the probe's round E measures whether these pointers are what it refuses. */
+   /* A zero-count array goes in as NULL, not as the pointer to the stack array upstream passes. The One S
+    * driver throws inside CreatePipelineState on xemu's first draw, which has no transform feedback and no
+    * vertex attributes, while every pipeline the D3D12 probe app created on that console with NULL here was
+    * accepted (2026-10-20); whether the pointers are what it refuses is what the probe's round E measures. */
    D3D12_STREAM_OUTPUT_DESC& stream_output_desc = (D3D12_STREAM_OUTPUT_DESC&)pso_desc.StreamOutput;
    stream_output_desc.NumEntries = num_entries;
    stream_output_desc.pSODeclaration = num_entries ? entries : NULL;
@@ -538,6 +375,8 @@ create_gfx_pipeline_state(struct d3d12_context *ctx)
    input_layout.pInputElementDescs = state->ves->elements;
    input_layout.NumElements = state->ves->num_elements;
    copy_input_attribs(state->ves->elements, input_attribs, &input_layout, state->stages[MESA_SHADER_VERTEX]->nir);
+   if (!input_layout.NumElements)
+      input_layout.pInputElementDescs = NULL;
 
    pso_desc.IBStripCutValue = state->ib_strip_cut_value;
 
@@ -577,18 +416,12 @@ create_gfx_pipeline_state(struct d3d12_context *ctx)
 
    pso_desc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
 
-   ID3D12PipelineState *ret;
-
    const bool stream_form = screen->opts14.IndependentFrontAndBackStencilRefMaskSupported != FALSE;
-   const char *dump_dir = d3d12_pso_dump_dir();
-   static unsigned dump_count = 0;
-   const unsigned dump_n = dump_count;
-   if (dump_dir) {
-      D3D12_GRAPHICS_PIPELINE_STATE_DESC v0 = pso_desc.GraphicsDescV0();
-      const d3d12_depth_stencil_desc_type &ds2 = (d3d12_depth_stencil_desc_type&)pso_desc.DepthStencilState;
-      dump_pso_desc(dump_dir, dump_count++, state, &v0, &ds2, stream_form);
-   }
+   const D3D12_GRAPHICS_PIPELINE_STATE_DESC v0desc = pso_desc.GraphicsDescV0();
+   const d3d12_depth_stencil_desc_type &ds2 = (d3d12_depth_stencil_desc_type&)pso_desc.DepthStencilState;
+   const int dump = d3d12_pso_dump_begin(state, &v0desc, &ds2, stream_form);
 
+   ID3D12PipelineState *ret;
    HRESULT hr;
    if (stream_form) {
       D3D12_PIPELINE_STATE_STREAM_DESC pso_stream_desc{
@@ -597,13 +430,14 @@ create_gfx_pipeline_state(struct d3d12_context *ctx)
       };
       hr = screen->dev->CreatePipelineState(&pso_stream_desc, IID_PPV_ARGS(&ret));
    } else {
-      D3D12_GRAPHICS_PIPELINE_STATE_DESC v0desc = pso_desc.GraphicsDescV0();
       hr = screen->dev->CreateGraphicsPipelineState(&v0desc, IID_PPV_ARGS(&ret));
    }
-   if (dump_dir)
-      dump_pso_result(dump_dir, dump_n, hr);
+   d3d12_pso_dump_end(dump, hr);
    if (FAILED(hr)) {
-      report_pso_failure(state, hr);
+      /* The UWP port ends the process on a refused pipeline (34732bb); on the Xbox that leaves no dump,
+       * so the HRESULT goes to stderr (xemu's log file) first. */
+      mesa_loge("D3D12: CreateGraphicsPipelineState failed: 0x%08lx", (unsigned long)hr);
+      fflush(stderr);
       std::_Exit(hr);
       return NULL;
    }

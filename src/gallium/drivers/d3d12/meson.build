@@ -62,6 +62,7 @@ if with_gallium_d3d12_graphics
     'd3d12_descriptor_pool.cpp',
     'd3d12_nir_passes.c',
     'd3d12_pipeline_state.cpp',
+    'd3d12_pso_dump.cpp',
     'd3d12_query.cpp',
     'd3d12_root_signature.cpp',
     'd3d12_gs_variant.cpp',
