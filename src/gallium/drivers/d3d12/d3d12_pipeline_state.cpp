@@ -503,12 +503,16 @@ create_gfx_pipeline_state(struct d3d12_context *ctx)
    if (state->num_so_targets)
       fill_so_declaration(&state->so_info, last_vertex_stage_nir, entries, &num_entries, strides, &num_strides);
 
+   /* Without transform feedback the descriptor carries no stream output at all: NULL pointers, not the
+    * zero-count stack arrays upstream passes. Every pipeline the One S driver has accepted so far had NULL
+    * here, and it throws inside CreatePipelineState on xemu's first draw, which has no transform feedback
+    * (2026-10-20); the probe's round E measures whether these pointers are what it refuses. */
    D3D12_STREAM_OUTPUT_DESC& stream_output_desc = (D3D12_STREAM_OUTPUT_DESC&)pso_desc.StreamOutput;
    stream_output_desc.NumEntries = num_entries;
-   stream_output_desc.pSODeclaration = entries;
+   stream_output_desc.pSODeclaration = num_entries ? entries : NULL;
    stream_output_desc.RasterizedStream = state->rast->base.rasterizer_discard ? D3D12_SO_NO_RASTERIZED_STREAM : 0;
    stream_output_desc.NumStrides = num_strides;
-   stream_output_desc.pBufferStrides = strides;
+   stream_output_desc.pBufferStrides = num_strides ? strides : NULL;
    pso_desc.StreamOutput = stream_output_desc;
 
    D3D12_BLEND_DESC& blend_state = (D3D12_BLEND_DESC&)pso_desc.BlendState;

@@ -4,8 +4,8 @@
     check_pso_dump.py <dump dir of xemu_gpuprops> <dump dir of transform_feedback>
 
 xemu_gpuprops is xemu's first draw and has no transform feedback, so every descriptor of it must carry no
-stream-output declaration: NumEntries 0, NumStrides 0, RasterizedStream 0, no ALLOW_STREAM_OUTPUT on the
-root signature. transform_feedback captures varyings, so at least one of its descriptors must carry entries
+stream-output declaration: NumEntries 0, NumStrides 0, RasterizedStream 0, both pointers NULL, no
+ALLOW_STREAM_OUTPUT on the root signature. transform_feedback captures varyings, so at least one of its descriptors must carry entries
 and the flag; that keeps the check from passing on a driver that dropped stream output altogether. The
 stream-output, input-layout and root-signature lines of each descriptor are printed: the evidence for
 hypothesis (a) in xemu-dxbc/RESUME.md (2026-10-20). Exit 1 on a violation or a directory without pso-NN.txt.
@@ -56,7 +56,8 @@ def show(txt, rec):
 
 
 def has_stream_output(rec):
-    return int(rec["so.NumEntries"]) > 0 or int(rec["so.NumStrides"]) > 0 or int(rec["so.RasterizedStream"]) != 0
+    return (int(rec["so.NumEntries"]) > 0 or int(rec["so.NumStrides"]) > 0 or int(rec["so.RasterizedStream"]) != 0
+            or rec["so.pSODeclaration"] != "null" or rec["so.pBufferStrides"] != "null")
 
 
 def main(no_xfb_dir, xfb_dir):
