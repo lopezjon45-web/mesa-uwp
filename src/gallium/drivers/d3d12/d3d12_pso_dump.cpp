@@ -113,7 +113,7 @@ d3d12_pso_dump_begin(const struct d3d12_gfx_pipeline_state *state, const D3D12_G
       return -1;
    /* Every context on the screen shares the counter; xemu creates pipelines from two threads. */
    static unsigned count = 0;
-   const unsigned n = p_atomic_inc_return(&count) - 1;
+   const unsigned n = (unsigned)(p_atomic_inc_return(&count) - 1);
    FILE *f = open_record(dir, n, ".txt", "w");
    if (!f)
       return (int)n;
