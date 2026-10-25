@@ -9,8 +9,11 @@ root signature) and, having no vertex attributes, a NULL input-layout pointer. t
 varyings, so at least one of its records must carry entries and the flag; that keeps the check from passing
 on a driver that dropped stream output altogether. RasterizedStream is printed but not judged: rasterizer
 discard sets it without transform feedback. Every record must be "format 1", carry an hr line (a create
-that threw leaves none) and hr 0. The stream-output, input-layout and root-signature lines of each record
-are printed: the evidence for hypothesis (a) in xemu-dxbc/RESUME.md (2026-10-20). Exit 1 on a violation.
+that threw leaves none) and hr 0. Every stage blob beside a record must carry signature read/write bytes
+as fxc writes them (an input reads a non-empty subset of its mask, an output's never-written byte is four
+bits outside its mask): the One S driver refused Mesa's pixel shader whose input byte read 0 (probe 1.3.3.0,
+2026-10-25). The stream-output, input-layout and root-signature lines of each record are printed: the
+evidence for hypothesis (a) in xemu-dxbc/RESUME.md (2026-10-20). Exit 1 on a violation.
 """
 import re
 import struct
@@ -40,6 +43,35 @@ def root_signature_flags(blob):
         if blob[off:off + 4] == b"RTS0":
             return struct.unpack_from("<I", blob, off + 8 + 20)[0]
     raise ValueError("no RTS0 chunk")
+
+
+SIGNATURE_ELEMENT_SIZE = {b"ISG1": 32, b"OSG1": 32, b"ISGN": 24, b"OSGN": 24, b"PCSG": 24, b"OSG5": 28}
+INPUT_TAGS = (b"ISG1", b"ISGN")
+
+
+def signature_elements(payload, size):
+    """(name, index, mask, rw) per element; the 32- and 28-byte layouts put the stream before the 24-byte core."""
+    count, off = struct.unpack_from("<II", payload, 0)
+    for i in range(count):
+        base = off + i * size + (4 if size != 24 else 0)
+        name_off, index, _sysval, _ctype, _reg, mask, rw, _ = struct.unpack_from("<IIIIIBBH", payload, base)
+        yield payload[name_off:payload.index(b"\0", name_off)].decode(), index, mask, rw
+
+
+def signature_problems(blob):
+    """The read/write byte as every DXBC reader takes it: an input reads a non-empty subset of its mask, an
+    output never writes only components outside its mask, four bits. Yields one line per violation."""
+    count = struct.unpack_from("<I", blob, 28)[0]
+    for off in struct.unpack_from(f"<{count}I", blob, 32):
+        tag = blob[off:off + 4]
+        if tag not in SIGNATURE_ELEMENT_SIZE:
+            continue
+        payload = blob[off + 8:off + 8 + struct.unpack_from("<I", blob, off + 4)[0]]
+        for name, index, mask, rw in signature_elements(payload, SIGNATURE_ELEMENT_SIZE[tag]):
+            if tag in INPUT_TAGS and (rw & ~mask or (mask and not rw)):
+                yield f"{tag.decode()} {name}{index}: mask {mask:#x} read byte {rw:#x} (must be a non-empty subset of the mask)"
+            if tag not in INPUT_TAGS and (rw & 0xf0 or rw & mask):
+                yield f"{tag.decode()} {name}{index}: mask {mask:#x} never-written byte {rw:#x} (must be four bits outside the mask)"
 
 
 def records(directory):
@@ -88,6 +120,10 @@ def main(no_xfb_dir, xfb_dir):
     for txt, rec in plain + captures:
         show(txt, rec)
         failures += record_problems(txt, rec)
+        for stage in ("vs", "hs", "ds", "gs", "ps"):
+            blob = txt.with_name(f"{txt.stem}-{stage}.dxbc")
+            if blob.exists():
+                failures += (f"{blob.name}: {p}" for p in signature_problems(blob.read_bytes()))
     for txt, rec in plain:
         if has_stream_output(rec):
             failures.append(f"{txt}: a stream-output declaration on xemu's first draw, which has no transform feedback")

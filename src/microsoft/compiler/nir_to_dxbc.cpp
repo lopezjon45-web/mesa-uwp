@@ -1998,6 +1998,23 @@ struct sysvalue_name {
    mesa_shader_stage only_in_shader;
 };
 
+/* A DXBC reader takes a signature element's read/write byte the way fxc writes it: for an input, the
+ * components the shader reads; for an output, the four bits of the components it never writes. The DXIL
+ * path never sets the input byte and widens the output byte to 0xff & ~mask for old validators, so Mesa's
+ * pixel shader claimed to read none of TEXCOORD0 (fxc: 0x7) and never to write 0xf0 of SV_Target0 (fxc:
+ * 0x0). The One S driver refuses that blob alone between fxc shaders (probe 1.3.3.0, 2026-10-25); whether
+ * these bytes are what it checks is what probe 1.3.4 measures. */
+static void
+set_dxbc_signature_masks(struct dxil_module *mod)
+{
+   for (unsigned i = 0; i < mod->num_sig_inputs; i++)
+      for (unsigned j = 0; j < mod->inputs[i].num_elements; j++)
+         mod->inputs[i].elements[j].always_reads_mask = mod->inputs[i].elements[j].mask;
+   for (unsigned i = 0; i < mod->num_sig_outputs; i++)
+      for (unsigned j = 0; j < mod->outputs[i].num_elements; j++)
+         mod->outputs[i].elements[j].never_writes_mask = (uint8_t)(0xf & ~mod->outputs[i].elements[j].mask);
+}
+
 static const struct sysvalue_name possible_sysvalues[] = {
    {SYSTEM_VALUE_VERTEX_ID_ZERO_BASE, -1, "SV_VertexID", MESA_SHADER_NONE},
    {SYSTEM_VALUE_INSTANCE_ID, -1, "SV_InstanceID", MESA_SHADER_NONE},
@@ -2111,6 +2128,8 @@ nir_to_dxbc(struct nir_shader *s, const struct nir_to_dxil_options *opts,
    }
 
    mod.shader.EndShader();
+
+   set_dxbc_signature_masks(&ctx.dxil_mod);
 
    ScopedDxilContainer container;
 
