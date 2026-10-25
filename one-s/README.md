@@ -24,3 +24,7 @@ The DXIL step copies every image whose scene passed its probes to `results/new-r
 On Windows, from a Visual Studio x64 developer prompt, run `one-s\glprobe\build.cmd <mesa>\include`. Put Mesa's `opengl32.dll`, `libgallium_wgl.dll` and the SDK's `dxil.dll` beside `glprobe.exe`. Then run `python one-s/glprobe/run.py --exe glprobe.exe --out results --expect one-s/glprobe/expected-dxbc-pass.txt` with `GALLIUM_DRIVER=d3d12`.
 
 On macOS, `one-s/glprobe/build-macos.sh <mesa>/include` builds glprobe against the system GL 4.1 core profile. Use `--renderer ""` with run.py. This checks a scene's probes on an independent driver.
+
+## Pipeline descriptor dump
+
+With `MESA_D3D12_PSO_DUMP_DIR` set, the d3d12 driver writes every graphics pipeline it creates into that directory before the create call: `pso-NN.txt` (the V0 descriptor, one `key value` line per field, array elements positional as the `#` lines say), `pso-NN-rs.bin` (the serialized root signature) and `pso-NN-<stage>.dxbc`, and appends the HRESULT after the call. A UWP app has no environment of its own, so a file named `pso-dump` inside `MESA_SHADER_CACHE_DIR` selects that directory instead; xemu points the variable into its LocalState. The desktop job dumps `xemu_gpuprops` and `transform_feedback` under the cap into `results/pso-dump/` of the `glprobe-results` artifact and runs `one-s/glprobe/check_pso_dump.py` over them: xemu's first draw must carry no stream-output declaration, the capture scene must. The One S D3D12 probe replays these files on the console.

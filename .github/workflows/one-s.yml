@@ -223,6 +223,26 @@ jobs:
             --expect one-s/glprobe/expected-dxbc-pass.txt
           exit $LASTEXITCODE
 
+      # The descriptors Mesa hands D3D12 for xemu's first draw (xemu-dxbc/RESUME.md hypothesis (a): a stream-output
+      # declaration on a pipeline without transform feedback) and, as the control, for a scene that captures.
+      # results/pso-dump/<scene>/ is what the One S D3D12 probe replays on the console.
+      - name: PSO descriptors of xemu_gpuprops and transform_feedback (SM 5.1)
+        if: (success() || failure()) && steps.glprobe.outcome == 'success'
+        shell: pwsh
+        env:
+          GALLIUM_DRIVER: d3d12
+          WGL_DISABLE_ERROR_DIALOGS: 1
+          D3D12_MAX_SHADER_MODEL: 51
+        run: |
+          foreach ($scene in 'xemu_gpuprops', 'transform_feedback') {
+            $env:MESA_D3D12_PSO_DUMP_DIR = "$env:GITHUB_WORKSPACE\results\pso-dump\$scene"
+            New-Item -ItemType Directory -Force $env:MESA_D3D12_PSO_DUMP_DIR | Out-Null
+            python one-s/glprobe/run.py --exe run\glprobe.exe --out "results\pso-dump\run-$scene" --title "PSO dump $scene" --scene $scene --expect-all
+            if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          }
+          python one-s/glprobe/check_pso_dump.py results\pso-dump\xemu_gpuprops results\pso-dump\transform_feedback
+          exit $LASTEXITCODE
+
       - name: glprobe results
         if: always()
         uses: actions/upload-artifact@v4

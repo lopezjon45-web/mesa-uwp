@@ -49,4 +49,12 @@ d3d12_root_signature_cache_destroy(struct d3d12_context *ctx);
 ID3D12RootSignature *
 d3d12_get_root_signature(struct d3d12_context *ctx, bool compute);
 
+/* Directory every graphics pipeline descriptor is dumped into, or NULL (d3d12_pipeline_state.cpp). */
+const char *
+d3d12_pso_dump_dir(void);
+
+/* Copies the serialized blob a root signature was created from into buf; 0 when it was not kept. */
+unsigned
+d3d12_root_signature_blob(ID3D12RootSignature *sig, void *buf, unsigned size);
+
 #endif

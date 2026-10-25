@@ -31,11 +31,51 @@ using Microsoft::WRL::ComPtr;
 #include "util/u_memory.h"
 
 #include <dxguids/dxguids.h>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 struct d3d12_root_signature {
    struct d3d12_root_signature_key key;
    ID3D12RootSignature *sig;
 };
+
+/* MESA_D3D12_PSO_DUMP_DIR names the directory; a UWP app has no environment of its own, so a file named
+ * pso-dump inside MESA_SHADER_CACHE_DIR (which xemu points into its LocalState) selects that directory. */
+const char *
+d3d12_pso_dump_dir(void)
+{
+   static const char *dir = []() -> const char * {
+      const char *env = getenv("MESA_D3D12_PSO_DUMP_DIR");
+      if (env)
+         return env;
+      const char *cache = getenv("MESA_SHADER_CACHE_DIR");
+      if (!cache)
+         return NULL;
+      char path[1024];
+      snprintf(path, sizeof(path), "%s/pso-dump", cache);
+      FILE *flag = fopen(path, "r");
+      if (!flag)
+         return NULL;
+      fclose(flag);
+      return strdup(cache);
+   }();
+   return dir;
+}
+
+/* The serialized blob rides on the ID3D12RootSignature as private data while dumping, so the pipeline
+ * dump can write the exact bytes CreateRootSignature saw. */
+static const GUID d3d12_root_signature_blob_guid =
+   { 0x4d455341, 0x5253, 0x4231, { 0x9b, 0x3c, 0x2a, 0x71, 0x1d, 0x4e, 0x4f, 0x55 } };
+
+unsigned
+d3d12_root_signature_blob(ID3D12RootSignature *sig, void *buf, unsigned size)
+{
+   UINT n = size;
+   if (!sig || FAILED(sig->GetPrivateData(d3d12_root_signature_blob_guid, &n, buf)))
+      return 0;
+   return n;
+}
 
 static D3D12_SHADER_VISIBILITY
 get_shader_visibility(mesa_shader_stage stage)
@@ -237,6 +277,8 @@ create_root_signature(struct d3d12_context *ctx, struct d3d12_root_signature_key
       debug_printf("CreateRootSignature failed\n");
       return NULL;
    }
+   if (d3d12_pso_dump_dir())
+      ret->SetPrivateData(d3d12_root_signature_blob_guid, (UINT)sig->GetBufferSize(), sig->GetBufferPointer());
    return ret;
 }
 
